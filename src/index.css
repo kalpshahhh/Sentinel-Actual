@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { margin: 0; padding: 0; height: 100%; }
+body {
+  background: #0a0e1a;
+  color: #e5e7eb;
+  font-family: ui-monospace, 'SF Mono', monospace;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle scanlines overlay for that industrial CRT feel */
+.scanlines::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(255,255,255,0.015) 0px,
+    rgba(255,255,255,0.015) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  z-index: 1;
+}
+
+/* Night vision red-on-black override */
+.night-theme {
+  background-color: #000 !important;
+  color: #ff6b6b !important;
+}
+.night-theme .bg-rig-bg { background-color: #000 !important; }
+.night-theme .bg-rig-surface { background-color: #1a0000 !important; }
+.night-theme .bg-rig-panel { background-color: #2a0000 !important; }
+.night-theme .text-rig-text { color: #ff6b6b !important; }
+.night-theme .text-rig-dim { color: #8a3a3a !important; }
+.night-theme .text-rig-accent { color: #ff6b6b !important; }
+.night-theme .bg-rig-accent { background-color: #ff6b6b !important; color: #000 !important; }
+.night-theme .border-rig-dim\/20 { border-color: rgba(255,107,107,0.2) !important; }
+.night-theme .border-rig-dim\/30 { border-color: rgba(255,107,107,0.3) !important; }
+.night-theme .border-rig-dim\/40 { border-color: rgba(255,107,107,0.4) !important; }
+.night-theme .bg-rig-ok { background-color: #ff6b6b !important; color: #000 !important; }
+.night-theme .text-rig-ok { color: #ff6b6b !important; }
+.night-theme .bg-rig-critical { background-color: #ff3030 !important; }
+.night-theme .text-rig-critical { color: #ff3030 !important; }
+.night-theme input, .night-theme button { color: inherit; }
+
+/* Rough seas wobble: damped sine */
+@keyframes wobble {
+  0%   { transform: rotate(-1.2deg) translateY(0px); }
+  25%  { transform: rotate(0.4deg) translateY(-2px); }
+  50%  { transform: rotate(1.2deg) translateY(0px); }
+  75%  { transform: rotate(-0.4deg) translateY(2px); }
+  100% { transform: rotate(-1.2deg) translateY(0px); }
+}
+.rough-seas {
+  animation: wobble 2.4s ease-in-out infinite;
+  transform-origin: 50% 50%;
+}
+
+/* Pulse-dot for OFFLINE / live feeds */
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.45; transform: scale(0.85); }
+}
+.pulse-dot { animation: pulseDot 1.6s ease-in-out infinite; }
+
+/* Radar sweep */
+@keyframes radarPing {
+  0%   { transform: scale(0.4); opacity: 0.8; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+.radar-ping { animation: radarPing 2s ease-out infinite; }
+
+/* Glow on critical badge */
+.glow-critical { box-shadow: 0 0 14px rgba(239, 68, 68, 0.55); }
+.glow-ok       { box-shadow: 0 0 14px rgba(16, 185, 129, 0.45); }
+.glow-accent   { box-shadow: 0 0 14px rgba(251, 146, 60, 0.5); }
+
+/* Compact scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(107, 114, 128, 0.4); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(107, 114, 128, 0.6); }
+
+/* Gloved-hands target sizing helper */
+.gloved button, .gloved [role="button"] {
+  min-height: 4rem;
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+
+/* Night-theme adjustments for form controls */
+.night-theme input[type="range"] { accent-color: #ff6b6b; }
+.night-theme .text-rig-accent { color: #ff6b6b !important; }
+.night-theme .border-rig-accent { border-color: #ff6b6b !important; }
+.night-theme .border-rig-accent\/40 { border-color: rgba(255,107,107,0.4) !important; }
+.night-theme .border-rig-accent\/50 { border-color: rgba(255,107,107,0.5) !important; }
+.night-theme .bg-rig-accent\/15 { background-color: rgba(255,107,107,0.15) !important; }
+.night-theme .glow-accent { box-shadow: 0 0 14px rgba(255,107,107,0.55) !important; }
+.night-theme .glow-ok { box-shadow: 0 0 14px rgba(255,107,107,0.35) !important; }
+.night-theme .glow-critical { box-shadow: 0 0 20px rgba(255,48,48,0.6) !important; }
+
+/* Faint critical undertint when incident is active (applied to top bar) */
+.incident-bar { box-shadow: 0 0 18px rgba(251, 146, 60, 0.18) inset; }
+
+/* Bigger min target zones when gloved (extra padding too) */
+.gloved input[type="range"] { height: 1.5rem; }
+.gloved .chip-target { min-height: 3rem; }
