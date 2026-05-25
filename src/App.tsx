@@ -18,6 +18,7 @@ import { loadCapabilityProfile, saveCapabilityProfile, defaultProfileForPreset }
 import { ModeSelector, type AppSessionMode } from './components/ModeSelector';
 import { CommandCenter } from './components/CommandCenter';
 import { OnboardingWizard } from './components/OnboardingWizard';
+import { OnboardingHome, type OnboardingAuditKind } from './components/OnboardingHome';
 import { useEnvironment } from './hooks/useEnvironment';
 import { useMotion } from './hooks/useMotion';
 import { useSound } from './hooks/useSound';
@@ -100,6 +101,8 @@ export default function App() {
   const [demoOffline, setDemoOffline] = useState(false);
   const [capabilityProfile, setCapabilityProfile] = useState<CapabilityProfile | null>(() => loadCapabilityProfile());
   const [showWizard, setShowWizard] = useState(false);
+  /** In onboarding mode, which screen of the hub is showing. */
+  const [onboardingView, setOnboardingView] = useState<'home' | 'audit'>('home');
 
   const isDemo = appSession === 'demo';
   const isOnboarding = appSession === 'onboarding';
@@ -286,8 +289,12 @@ export default function App() {
           setAppSession(m);
           // Onboarding mode forces wizard first. Demo/live use a default
           // capability profile if none saved yet, but offer reconfigure later.
-          if (m === 'onboarding' && !capabilityProfile) {
-            setShowWizard(true);
+          if (m === 'onboarding') {
+            // Onboarding mode: if no profile, wizard first; otherwise land on
+            // the OnboardingHome hub. We never auto-jump to CommandCenter here.
+            if (!capabilityProfile) {
+              setShowWizard(true);
+            }
             setShowCommandCenter(false);
           } else {
             if (!capabilityProfile) {
@@ -319,9 +326,43 @@ export default function App() {
             data: profile,
           });
           setShowWizard(false);
-          setShowCommandCenter(true);
+          // In onboarding mode, return to the hub. Otherwise (e.g. operator
+          // hit "Reconfigure" from CommandCenter in demo/live), go back to
+          // CommandCenter.
+          if (!isOnboarding) {
+            setShowCommandCenter(true);
+          }
         }}
         onCancel={capabilityProfile ? () => setShowWizard(false) : undefined}
+      />
+    );
+  }
+
+  // Onboarding hub — the post-wizard landing page in onboarding mode. Shows
+  // auto-pulled location/weather and two big audit tiles. Phase 1 routes the
+  // tiles to DeployMode where the existing import + WiFi scan UI lives;
+  // dedicated audit screens land in Phase 2/3.
+  if (
+    isOnboarding &&
+    onboardingView === 'home' &&
+    !showCommandCenter &&
+    mode === 'deploy' &&
+    capabilityProfile
+  ) {
+    const handleStartAudit = (_kind: OnboardingAuditKind) => {
+      // Phase 1: drop into existing DeployMode UI (WiFi/Bluetooth + CSV/barcode
+      // both live there). Phase 2/3 will replace with dedicated audit screens.
+      setOnboardingView('audit');
+    };
+    return (
+      <OnboardingHome
+        profile={capabilityProfile}
+        dataSource="live"
+        equipmentCount={inventoryManifest?.devices.length ?? 0}
+        medicineCount={inventoryManifest?.medications.length ?? 0}
+        onEditProfile={() => setShowWizard(true)}
+        onStartAudit={handleStartAudit}
+        onContinueToOperations={() => setShowCommandCenter(true)}
       />
     );
   }
@@ -389,7 +430,13 @@ export default function App() {
                 addAuditEntry={addAuditEntry}
                 inventoryManifest={inventoryManifest}
                 onManifestImported={handleManifestImported}
-                onBackToCommand={() => setShowCommandCenter(true)}
+                onBackToCommand={() => {
+                  if (isOnboarding) {
+                    setOnboardingView('home');
+                  } else {
+                    setShowCommandCenter(true);
+                  }
+                }}
                 capabilityProfile={capabilityProfile}
               />
             )}
