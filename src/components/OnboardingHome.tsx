@@ -21,9 +21,11 @@ import {
   XCircle,
   CheckCircle2,
   Activity,
+  Ship,
+  Snowflake,
 } from 'lucide-react';
 import clsx from 'clsx';
-import type { CapabilityProfile } from '../types';
+import type { CapabilityProfile, InventoryPreset } from '../types';
 import { siteTypeLabel, regionLabel, commsLabel } from '../lib/capability';
 import { useGeolocation } from '../hooks/useGeolocation';
 import {
@@ -39,9 +41,11 @@ type Props = {
   profile: CapabilityProfile;
   /** demo = fake data; live = real GPS + real weather fetch. */
   dataSource: 'demo' | 'live';
+  selectedPreset: InventoryPreset;
   /** Returns counts so the home page can show progress against each audit. */
   equipmentCount?: number;
   medicineCount?: number;
+  onPresetChange: (preset: InventoryPreset) => void;
   onEditProfile: () => void;
   onStartAudit: (kind: OnboardingAuditKind) => void;
   onContinueToOperations: () => void;
@@ -52,8 +56,10 @@ const REFRESH_INTERVAL_MS = 5 * 60_000;
 export function OnboardingHome({
   profile,
   dataSource,
+  selectedPreset,
   equipmentCount = 0,
   medicineCount = 0,
+  onPresetChange,
   onEditProfile,
   onStartAudit,
   onContinueToOperations,
@@ -162,6 +168,37 @@ export function OnboardingHome({
       </div>
 
       <div className="flex-1 px-4 md:px-6 py-6 max-w-5xl w-full mx-auto">
+        {/* VESSEL SELECTOR */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-5"
+        >
+          <div className="text-[10px] uppercase tracking-widest text-rig-dim mb-2 flex items-center gap-1.5">
+            <Ship size={11} /> Select vessel
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <VesselCard
+              active={selectedPreset === 'offshore'}
+              name="MV NORTHERN STAR"
+              type="Offshore Supply Vessel · North Sea"
+              flag="UK"
+              crew={12}
+              icon={<Ship size={20} />}
+              onClick={() => onPresetChange('offshore')}
+            />
+            <VesselCard
+              active={selectedPreset === 'polar'}
+              name="HALLEY VI"
+              type="Antarctic Research Station · Polar"
+              flag="British Antarctic Survey"
+              crew={16}
+              icon={<Snowflake size={20} />}
+              onClick={() => onPresetChange('polar')}
+            />
+          </div>
+        </motion.section>
+
         {/* LOCATION CARD */}
         <motion.section
           initial={{ opacity: 0, y: 8 }}
@@ -425,4 +462,42 @@ function AuditTile({
 function formatCoord(v: number, kind: 'lat' | 'lng'): string {
   const hemi = kind === 'lat' ? (v >= 0 ? 'N' : 'S') : v >= 0 ? 'E' : 'W';
   return `${Math.abs(v).toFixed(4)}°${hemi}`;
+}
+
+function VesselCard({
+  active,
+  name,
+  type,
+  flag,
+  crew,
+  icon,
+  onClick,
+}: {
+  active: boolean;
+  name: string;
+  type: string;
+  flag: string;
+  crew: number;
+  icon: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={clsx(
+        'w-full text-left p-4 rounded-lg border flex items-center gap-4 transition-all',
+        active
+          ? 'bg-rig-accent/15 border-rig-accent/60 shadow-[0_0_0_1px_rgb(var(--rig-accent)/0.3)]'
+          : 'bg-rig-surface/40 border-rig-dim/30 hover:border-rig-dim/60'
+      )}
+    >
+      <span className={clsx('shrink-0', active ? 'text-rig-accent' : 'text-rig-dim')}>{icon}</span>
+      <div className="flex-1 min-w-0">
+        <div className={clsx('text-sm font-bold tracking-wide', active ? 'text-rig-accent' : 'text-rig-text')}>{name}</div>
+        <div className="text-xs text-rig-dim truncate">{type}</div>
+        <div className="text-[10px] text-rig-dim/70 mt-0.5">{flag} · {crew} crew</div>
+      </div>
+      {active && <CheckCircle2 size={16} className="text-rig-accent shrink-0" />}
+    </button>
+  );
 }

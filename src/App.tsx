@@ -19,6 +19,8 @@ import { ModeSelector, type AppSessionMode } from './components/ModeSelector';
 import { CommandCenter } from './components/CommandCenter';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { OnboardingHome, type OnboardingAuditKind } from './components/OnboardingHome';
+import { EquipmentAuditScreen } from './components/EquipmentAuditScreen';
+import { MedicineAuditScreen } from './components/MedicineAuditScreen';
 import { useEnvironment } from './hooks/useEnvironment';
 import { useMotion } from './hooks/useMotion';
 import { useSound } from './hooks/useSound';
@@ -102,7 +104,7 @@ export default function App() {
   const [capabilityProfile, setCapabilityProfile] = useState<CapabilityProfile | null>(() => loadCapabilityProfile());
   const [showWizard, setShowWizard] = useState(false);
   /** In onboarding mode, which screen of the hub is showing. */
-  const [onboardingView, setOnboardingView] = useState<'home' | 'audit'>('home');
+  const [onboardingView, setOnboardingView] = useState<'home' | 'equipment-audit' | 'medicine-audit'>('home');
 
   const isDemo = appSession === 'demo';
   const isOnboarding = appSession === 'onboarding';
@@ -338,31 +340,68 @@ export default function App() {
     );
   }
 
-  // Onboarding hub — the post-wizard landing page in onboarding mode. Shows
-  // auto-pulled location/weather and two big audit tiles. Phase 1 routes the
-  // tiles to DeployMode where the existing import + WiFi scan UI lives;
-  // dedicated audit screens land in Phase 2/3.
-  if (
-    isOnboarding &&
-    onboardingView === 'home' &&
-    !showCommandCenter &&
-    mode === 'deploy' &&
-    capabilityProfile
-  ) {
-    const handleStartAudit = (_kind: OnboardingAuditKind) => {
-      // Phase 1: drop into existing DeployMode UI (WiFi/Bluetooth + CSV/barcode
-      // both live there). Phase 2/3 will replace with dedicated audit screens.
-      setOnboardingView('audit');
-    };
+  // Onboarding hub
+  if (isOnboarding && onboardingView === 'home' && !showCommandCenter && mode === 'deploy' && capabilityProfile) {
     return (
       <OnboardingHome
         profile={capabilityProfile}
         dataSource="live"
+        selectedPreset={inventoryPreset}
         equipmentCount={inventoryManifest?.devices.length ?? 0}
         medicineCount={inventoryManifest?.medications.length ?? 0}
+        onPresetChange={(preset) => {
+          handleSelectPreset(preset);
+        }}
         onEditProfile={() => setShowWizard(true)}
-        onStartAudit={handleStartAudit}
+        onStartAudit={(kind: OnboardingAuditKind) => {
+          setOnboardingView(kind === 'equipment' ? 'equipment-audit' : 'medicine-audit');
+        }}
         onContinueToOperations={() => setShowCommandCenter(true)}
+      />
+    );
+  }
+
+  // Equipment audit screen
+  if (isOnboarding && onboardingView === 'equipment-audit' && capabilityProfile) {
+    return (
+      <EquipmentAuditScreen
+        vesselName={vessel.name}
+        currentManifest={inventoryManifest}
+        onSaved={(manifest) => {
+          setInventoryManifest(manifest);
+          void saveManifest(manifest);
+          addAuditEntry({
+            mode: 'deploy',
+            type: 'input',
+            description: `Equipment audit saved — ${manifest.devices.length} devices`,
+            data: { devices: manifest.devices.map((d) => d.name) },
+          });
+          setOnboardingView('home');
+        }}
+        onBack={() => setOnboardingView('home')}
+      />
+    );
+  }
+
+  // Medicine audit screen
+  if (isOnboarding && onboardingView === 'medicine-audit' && capabilityProfile) {
+    return (
+      <MedicineAuditScreen
+        preset={inventoryPreset}
+        vesselName={vessel.name}
+        currentManifest={inventoryManifest}
+        onSaved={(manifest) => {
+          setInventoryManifest(manifest);
+          void saveManifest(manifest);
+          addAuditEntry({
+            mode: 'deploy',
+            type: 'input',
+            description: `Medicine audit saved — ${manifest.medications.length} items`,
+            data: { medications: manifest.medications.map((m) => m.genericName) },
+          });
+          setOnboardingView('home');
+        }}
+        onBack={() => setOnboardingView('home')}
       />
     );
   }
