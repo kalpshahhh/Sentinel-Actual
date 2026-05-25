@@ -4,6 +4,7 @@ import type {
   AppMode,
   ArchitectureCounters,
   AuditEntry,
+  CapabilityProfile,
   Case,
   InventoryPreset,
   Scenario,
@@ -13,13 +14,17 @@ import { loadManifest, saveManifest, addInventoryAudit, makeAuditId } from './li
 import { getVesselForPreset } from './data/vessel';
 import { getInventoryForPreset } from './data/equipment';
 import { getFallbackScenarios } from './data/protocols';
+import { loadCapabilityProfile, saveCapabilityProfile, defaultProfileForPreset } from './lib/capability';
 import { ModeSelector, type AppSessionMode } from './components/ModeSelector';
 import { CommandCenter } from './components/CommandCenter';
+import { OnboardingWizard } from './components/OnboardingWizard';
 import { useEnvironment } from './hooks/useEnvironment';
 import { useMotion } from './hooks/useMotion';
 import { useSound } from './hooks/useSound';
 import { useKeyboard } from './hooks/useKeyboard';
 import { useGyro } from './hooks/useGyro';
+import { useGyroStabilization } from './hooks/useGyroStabilization';
+import { StabilizedContainer } from './components/StabilizedContainer';
 import { StatusBar } from './components/StatusBar';
 import { ArchitecturePanel } from './components/ArchitecturePanel';
 import { EnvironmentControls } from './components/EnvironmentControls';
@@ -93,6 +98,8 @@ export default function App() {
   const [appSession, setAppSession] = useState<AppSessionMode | null>(null);
   const [showCommandCenter, setShowCommandCenter] = useState(false);
   const [demoOffline, setDemoOffline] = useState(false);
+  const [capabilityProfile, setCapabilityProfile] = useState<CapabilityProfile | null>(() => loadCapabilityProfile());
+  const [showWizard, setShowWizard] = useState(false);
 
   const isDemo = appSession === 'demo';
   const isOnboarding = appSession === 'onboarding';
@@ -112,6 +119,7 @@ export default function App() {
 
   useMotion(setMotionLevel);
   const gyro = useGyro();
+  const stab = useGyroStabilization(true);
   useEffect(() => {
     if (gyro.motionLevel > 0) setMotionLevel(gyro.motionLevel);
   }, [gyro.motionLevel, setMotionLevel]);
@@ -276,16 +284,51 @@ export default function App() {
       <ModeSelector
         onSelect={(m) => {
           setAppSession(m);
-          setShowCommandCenter(true);
+          // Onboarding mode forces wizard first. Demo/live use a default
+          // capability profile if none saved yet, but offer reconfigure later.
+          if (m === 'onboarding' && !capabilityProfile) {
+            setShowWizard(true);
+            setShowCommandCenter(false);
+          } else {
+            if (!capabilityProfile) {
+              const def = defaultProfileForPreset(inventoryPreset);
+              setCapabilityProfile(def);
+              saveCapabilityProfile(def);
+            }
+            setShowCommandCenter(true);
+          }
           setMode('deploy');
         }}
       />
     );
   }
 
+  // Onboarding wizard (forced, or operator-triggered from anywhere)
+  if (showWizard) {
+    return (
+      <OnboardingWizard
+        initialPreset={inventoryPreset}
+        initial={capabilityProfile}
+        onComplete={(profile) => {
+          setCapabilityProfile(profile);
+          saveCapabilityProfile(profile);
+          addAuditEntry({
+            mode: 'deploy',
+            type: 'input',
+            description: `Capability profile saved — ${profile.siteType} · ${profile.region} · evac ${profile.evacPossible ? `${profile.expectedMedicEtaHours}h to ${profile.nearestEvac}` : 'NOT possible'} · comms ${profile.comms}`,
+            data: profile,
+          });
+          setShowWizard(false);
+          setShowCommandCenter(true);
+        }}
+        onCancel={capabilityProfile ? () => setShowWizard(false) : undefined}
+      />
+    );
+  }
+
   return (
     <div className={rootClasses}>
-      <div className={clsx('absolute inset-0 flex flex-col', env.roughSeas && 'rough-seas')}>
+      <div className="absolute inset-0 flex flex-col">
         <StatusBar
           vessel={vessel}
           caseId={caseId}
@@ -300,6 +343,12 @@ export default function App() {
 
         <div className="flex flex-1 min-h-0">
           <main className="flex-1 min-w-0 overflow-y-auto relative">
+            <StabilizedContainer
+              compensationDeg={stab.compensationDeg}
+              compensationY={stab.compensationY}
+              gyroActive={stab.streaming}
+              simulatedRoughSeas={env.roughSeas}
+            >
 
             {/* Command center — post-mode landing screen */}
             {showCommandCenter && mode === 'deploy' && (
@@ -310,6 +359,8 @@ export default function App() {
                 compiledProtocols={compiledScenarios.length}
                 isOnline={navigator.onLine}
                 demoOffline={demoOffline}
+                capabilityProfile={capabilityProfile}
+                onReconfigureProfile={() => setShowWizard(true)}
                 onGoToAudit={() => setShowCommandCenter(false)}
                 onEmergency={triggerIncidentNow}
               />
@@ -339,6 +390,7 @@ export default function App() {
                 inventoryManifest={inventoryManifest}
                 onManifestImported={handleManifestImported}
                 onBackToCommand={() => setShowCommandCenter(true)}
+                capabilityProfile={capabilityProfile}
               />
             )}
 
@@ -367,6 +419,7 @@ export default function App() {
                 onReset={handleResolveAndReset}
               />
             )}
+            </StabilizedContainer>
           </main>
 
           {!operatorMode && (
@@ -386,6 +439,31 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* Motion compensation status — only when sensors streaming or simulation active */}
+      {(stab.streaming || env.roughSeas) && (
+        <div className="fixed top-14 right-3 z-30 px-2.5 py-1.5 rounded-md border border-rig-accent/40 bg-rig-bg/90 backdrop-blur shadow-lg flex items-center gap-1.5">
+          <span className="relative inline-flex h-2 w-2">
+            <span className="absolute inset-0 rounded-full bg-rig-accent pulse-dot" />
+          </span>
+          <span className="text-[9px] uppercase tracking-widest font-bold text-rig-accent">
+            {stab.streaming ? 'Gyro Stabilized' : 'Motion Sim'}
+          </span>
+          {stab.streaming && (
+            <span className="text-[9px] font-mono text-rig-dim">
+              {stab.compensationDeg >= 0 ? '+' : ''}{stab.compensationDeg.toFixed(1)}°
+            </span>
+          )}
+        </div>
+      )}
+      {stab.supported && stab.needsPermission && stab.permissionState !== 'granted' && (
+        <button
+          onClick={() => void stab.enable()}
+          className="fixed top-14 right-3 z-30 px-2.5 py-1.5 rounded-md border border-rig-accent/50 bg-rig-bg/90 backdrop-blur shadow-lg text-[9px] uppercase tracking-widest font-bold text-rig-accent hover:bg-rig-accent/10"
+        >
+          Enable Motion Sensors
+        </button>
+      )}
 
       {/* Operator/Demo dashboard toggle */}
       <button

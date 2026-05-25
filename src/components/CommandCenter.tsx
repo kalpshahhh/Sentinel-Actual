@@ -1,12 +1,13 @@
 import { motion } from 'framer-motion';
-import { MapPin, Battery, BatteryCharging, Wifi, WifiOff, Package, Siren, ClipboardList, FlaskConical, Wind, AlertTriangle } from 'lucide-react';
+import { MapPin, Battery, BatteryCharging, Wifi, WifiOff, Package, Siren, ClipboardList, FlaskConical, Wind, AlertTriangle, Compass, Plane, XCircle, Radio } from 'lucide-react';
 import clsx from 'clsx';
-import type { Vessel } from '../types';
+import type { CapabilityProfile, Vessel } from '../types';
 import type { InventoryManifest } from '../types/inventory';
 import type { AppSessionMode } from './ModeSelector';
 import { useGeolocation } from '../hooks/useGeolocation';
 import { useBattery } from '../hooks/useBattery';
 import { useWeather } from '../hooks/useWeather';
+import { siteTypeLabel, regionLabel, commsLabel } from '../lib/capability';
 
 const DEMO_LAT = 56.234;
 const DEMO_LNG = 3.456;
@@ -18,6 +19,8 @@ type Props = {
   compiledProtocols: number;
   isOnline: boolean;
   demoOffline?: boolean;
+  capabilityProfile?: CapabilityProfile | null;
+  onReconfigureProfile?: () => void;
   onGoToAudit: () => void;
   onEmergency: () => void;
 };
@@ -30,6 +33,7 @@ function fmtCoord(lat: number, lng: number): string {
 
 export function CommandCenter({
   sessionMode, vessel, inventoryManifest, compiledProtocols, isOnline, demoOffline = false,
+  capabilityProfile, onReconfigureProfile,
   onGoToAudit, onEmergency,
 }: Props) {
   const isDemo = sessionMode === 'demo';
@@ -72,7 +76,7 @@ export function CommandCenter({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="h-full overflow-y-auto"
+      className="w-full"
     >
       <div className="max-w-4xl mx-auto p-6 flex flex-col gap-5">
 
@@ -120,6 +124,48 @@ export function CommandCenter({
             sub={effectiveOnline ? 'Connected' : 'No connection'}
           />
         </div>
+
+        {/* Capability profile */}
+        {capabilityProfile && (
+          <div className="bg-rig-surface border border-rig-dim/20 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Compass size={13} className="text-rig-accent" />
+                <span className="text-[10px] uppercase tracking-widest text-rig-dim">Capability profile</span>
+              </div>
+              {onReconfigureProfile && (
+                <button
+                  onClick={onReconfigureProfile}
+                  className="text-[10px] uppercase tracking-widest text-rig-dim hover:text-rig-accent border border-rig-dim/30 rounded px-2 py-1 hover:border-rig-accent/50"
+                >
+                  Reconfigure
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <ProfileCell icon={<Compass size={13} />} label="Site" value={siteTypeLabel(capabilityProfile.siteType)} sub={regionLabel(capabilityProfile.region)} />
+              <ProfileCell
+                icon={capabilityProfile.evacPossible ? <Plane size={13} /> : <XCircle size={13} />}
+                label="Evacuation"
+                value={capabilityProfile.evacPossible ? `${capabilityProfile.expectedMedicEtaHours}h to ${capabilityProfile.nearestEvac}` : 'Not possible'}
+                sub={capabilityProfile.evacPossible ? `${capabilityProfile.nearestEvacKm} km` : 'Onboard care only'}
+                tone={capabilityProfile.evacPossible ? 'ok' : 'critical'}
+              />
+              <ProfileCell
+                icon={<Radio size={13} />}
+                label="Comms"
+                value={commsLabel(capabilityProfile.comms)}
+                tone={capabilityProfile.comms === 'none' ? 'critical' : 'ok'}
+              />
+              <ProfileCell
+                icon={<AlertTriangle size={13} />}
+                label="Notes"
+                value={capabilityProfile.constraints || '—'}
+                sub={capabilityProfile.constraints ? '' : 'No constraints recorded'}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Medical readiness */}
         <div className="bg-rig-surface border border-rig-dim/20 rounded-lg p-4">
@@ -212,6 +258,28 @@ function StatusCard({
       </div>
       <div className="text-xs font-mono text-rig-text leading-snug">{value}</div>
       {sub && <div className="text-[9px] text-rig-dim mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function ProfileCell({
+  icon, label, value, sub, tone = 'ok',
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: 'ok' | 'critical';
+}) {
+  const toneCol = tone === 'critical' ? 'text-rig-critical' : 'text-rig-accent';
+  return (
+    <div className="bg-rig-bg border border-rig-dim/20 rounded p-3">
+      <div className={clsx('flex items-center gap-1.5 mb-1.5', toneCol)}>
+        {icon}
+        <span className="text-[9px] uppercase tracking-widest font-bold">{label}</span>
+      </div>
+      <div className="text-xs text-rig-text leading-snug line-clamp-2">{value}</div>
+      {sub && <div className="text-[10px] text-rig-dim mt-0.5 line-clamp-1">{sub}</div>}
     </div>
   );
 }

@@ -1993,6 +1993,78 @@ function normalize(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
 }
 
+// === Information-gain question picker ===
+//
+// After each answer, we re-rank the scenarios. To pick the NEXT question, we
+// don't walk the pool in order — we look at the current probability mass
+// across the top candidates and score each remaining question by how well it
+// would split that mass. A question that distinguishes two equally-likely
+// scenarios is high-value; a question that affects only the leading scenario
+// or a long-shot is low-value.
+//
+// Scoring (per remaining question q):
+//   yesMass = sum of P(scenario) where q is linked to that scenario
+//   noMass  = 1 - yesMass
+//   splitScore = 1 - |yesMass - 0.5| * 2   // 1.0 at perfect 50/50, 0 at 100/0
+//   ambiguityBoost = 1 + min(1, contestedProb / 0.6)  // weight more when top
+//                                                       two are close
+//   gain = splitScore * ambiguityBoost * (relevant ? 1 : 0.3)
+//
+// Where "relevant" = q is linked to at least one of the top 3 scenarios.
+
+export function nextBestQuestion(
+  scenarios: Scenario[],
+  regions: import('../types').BodyRegion[],
+  answers: Record<string, Answer>,
+  questionPool: QuestionEntry[]
+): { question: QuestionEntry; gain: number } | null {
+  const remaining = questionPool.filter((q) => !(q.id in answers));
+  if (remaining.length === 0) return null;
+
+  const ranked = rankFromAnswers(scenarios, regions, answers, questionPool);
+  if (ranked.length === 0) return { question: remaining[0], gain: 0 };
+
+  const topIds = new Set(ranked.slice(0, 3).map((r) => r.scenario.id));
+  const probById = new Map(ranked.map((r) => [r.scenario.id, r.probability]));
+  const top = ranked[0]?.probability ?? 0;
+  const second = ranked[1]?.probability ?? 0;
+  const contestedProb = top + second;
+
+  let best: QuestionEntry | null = null;
+  let bestGain = -1;
+
+  for (const q of remaining) {
+    let yesMass = 0;
+    let relevantToTop = false;
+    for (const sid of q.scenarioIds) {
+      yesMass += probById.get(sid) ?? 0;
+      if (topIds.has(sid)) relevantToTop = true;
+    }
+    if (q.categoryBoost && !relevantToTop) {
+      // Generic category-boost questions (like "trouble breathing?") get partial
+      // credit if any top scenario sits in that category.
+      for (const sid of topIds) {
+        const sc = scenarios.find((s) => s.id === sid);
+        if (sc?.category && q.categoryBoost.includes(sc.category)) {
+          relevantToTop = true;
+          break;
+        }
+      }
+    }
+
+    const splitScore = 1 - Math.abs(yesMass - 0.5) * 2; // perfect 50/50 = 1
+    const ambiguity = 1 + Math.min(1, (top - second < 0.12 ? contestedProb : 0) / 0.6);
+    const gain = Math.max(0, splitScore) * ambiguity * (relevantToTop ? 1 : 0.3);
+
+    if (gain > bestGain) {
+      bestGain = gain;
+      best = q;
+    }
+  }
+
+  return best ? { question: best, gain: bestGain } : { question: remaining[0], gain: 0 };
+}
+
 // === Dose-schedule math (when-help-arrives → timed checklist) ===
 
 export type DoseSchedule = {

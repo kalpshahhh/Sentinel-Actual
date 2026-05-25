@@ -6,6 +6,7 @@ import { useGeolocation } from '../hooks/useGeolocation';
 import { useBattery } from '../hooks/useBattery';
 import { useDevice } from '../hooks/useDevice';
 import { useWeather } from '../hooks/useWeather';
+import { useNetworkLatency, latencyLabel } from '../hooks/useNetworkLatency';
 
 // Fixed training coordinates — North Sea platform
 const DEMO_LAT = 56.234;
@@ -38,6 +39,7 @@ export function StatusBar({
   const geo = useGeolocation();
   const battery = useBattery();
   const device = useDevice();
+  const latency = useNetworkLatency(!isDemo);
 
   // Resolve coords for weather fetch
   const resolvedLat = isDemo ? DEMO_LAT : (geo.status === 'granted' && geo.lat !== null ? geo.lat : vessel.lat);
@@ -127,13 +129,31 @@ export function StatusBar({
 
       {/* Right — connection + battery + time */}
       <div className="flex items-center gap-2.5 text-xs font-mono shrink-0">
-        {/* Online / offline indicator */}
-        <div className="flex items-center gap-1.5" style={{ color: effectiveOnline ? 'var(--rig-ok)' : 'var(--rig-dim)' }}>
+        {/* Online / offline indicator + link-quality probe */}
+        <div className="flex items-center gap-1.5" title={!isDemo && latency.latencyMs !== null ? `Probe RTT ${latency.latencyMs} ms · last ${latency.lastChecked?.toLocaleTimeString()}` : undefined}>
           <span className="relative inline-flex h-2 w-2">
-            <span className={clsx('absolute inset-0 rounded-full', effectiveOnline ? 'bg-rig-ok pulse-dot' : 'bg-rig-dim')} />
+            <span className={clsx(
+              'absolute inset-0 rounded-full',
+              !effectiveOnline ? 'bg-rig-dim' :
+              isDemo ? 'bg-rig-ok pulse-dot' :
+              latency.classification === 'near' ? 'bg-rig-ok pulse-dot' :
+              latency.classification === 'remote' ? 'bg-rig-accent pulse-dot' :
+              latency.classification === 'very_remote' ? 'bg-rig-critical pulse-dot' :
+              'bg-rig-dim'
+            )} />
           </span>
-          {effectiveOnline ? <Wifi size={12} /> : <WifiOff size={12} />}
-          <span className="uppercase tracking-widest text-[10px]">{effectiveOnline ? 'ONLINE' : 'OFFLINE'}</span>
+          {effectiveOnline ? <Wifi size={12} className={clsx(
+            isDemo || latency.classification === 'near' ? 'text-rig-ok' :
+            latency.classification === 'remote' ? 'text-rig-accent' :
+            latency.classification === 'very_remote' ? 'text-rig-critical' :
+            'text-rig-dim'
+          )} /> : <WifiOff size={12} className="text-rig-dim" />}
+          <span className="uppercase tracking-widest text-[10px] text-rig-text">
+            {!effectiveOnline ? 'OFFLINE' : isDemo ? 'ONLINE' : latencyLabel(latency.classification)}
+          </span>
+          {!isDemo && effectiveOnline && latency.latencyMs !== null && (
+            <span className="text-[9px] font-mono text-rig-dim">{latency.latencyMs}ms</span>
+          )}
         </div>
 
         {/* Demo offline toggle */}

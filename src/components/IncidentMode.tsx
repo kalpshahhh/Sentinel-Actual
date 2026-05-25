@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import type { AuditEntry, BodyRegion, Case, OneHandedMode, Scenario, Vessel, Vitals } from '../types';
 import type { InventoryManifest } from '../types/inventory';
-import { buildQuestionPool, rankFromAnswers, type Answer, type QuestionEntry } from '../data/protocols';
+import { buildQuestionPool, rankFromAnswers, nextBestQuestion, type Answer, type QuestionEntry } from '../data/protocols';
 import { InteractiveBody } from './InteractiveBody';
 import { CompareConditions } from './CompareConditions';
 import { TreatmentSteps } from './TreatmentSteps';
@@ -47,8 +47,10 @@ export function IncidentMode({
 }: Props) {
   const [stage, setStage] = useState<Stage>('body');
   const [regions, setRegions] = useState<BodyRegion[]>([]);
-  const [questionIdx, setQuestionIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
+  const [answeredOrder, setAnsweredOrder] = useState<string[]>([]);
+  const MAX_QUESTIONS = 6;
+  const questionIdx = answeredOrder.length;
   const [extraInfo, setExtraInfo] = useState<string>('');
   const [ultrasoundFinding, setUltrasoundFinding] = useState<{ key: UltrasoundFinding; label: string } | null>(null);
   const [confirmedScenarioId, setConfirmedScenarioId] = useState<string | null>(null);
@@ -87,6 +89,19 @@ export function IncidentMode({
     [compiledScenarios, regions, answers, questionPool]
   );
 
+  // Dynamic question selector — picks the question that best splits the
+  // current top scenarios by probability mass. Re-derived after every answer.
+  const nextQ = useMemo(
+    () => nextBestQuestion(compiledScenarios, regions, answers, questionPool),
+    [compiledScenarios, regions, answers, questionPool]
+  );
+
+  // Early-stop heuristic: high lead + decent absolute confidence.
+  const confidenceReached =
+    ranked.length >= 1 &&
+    ranked[0].probability > 0.55 &&
+    ranked[0].probability - (ranked[1]?.probability ?? 0) > 0.18;
+
   const topScenario =
     confirmedScenarioId ? compiledScenarios.find((s) => s.id === confirmedScenarioId) ?? ranked[0]?.scenario ?? null : ranked[0]?.scenario ?? null;
   const topProbability = ranked[0]?.probability ?? 0;
@@ -98,31 +113,27 @@ export function IncidentMode({
   const handleContinueToQuestions = useCallback(() => {
     if (regions.length === 0) return;
     setStage('questions');
-    setQuestionIdx(0);
+    setAnsweredOrder([]);
     addAuditEntry({
       mode: 'incident',
       type: 'decision',
-      description: `Loaded ${questionPool.length} pre-compiled questions for selected location${regions.length > 1 ? 's' : ''}`,
+      description: `Loaded ${questionPool.length} candidate questions for selected location${regions.length > 1 ? 's' : ''} — adaptive selection enabled`,
     });
   }, [regions.length, questionPool.length, addAuditEntry]);
 
   const handleAnswer = useCallback(
     (ans: Answer) => {
-      const q = questionPool[questionIdx];
+      const q = nextQ?.question;
       if (!q) return;
       setAnswers((prev) => ({ ...prev, [q.id]: ans }));
+      setAnsweredOrder((prev) => [...prev, q.id]);
       addAuditEntry({
         mode: 'incident',
         type: 'input',
-        description: `${ans.toUpperCase()} — "${q.text}"`,
+        description: `${ans.toUpperCase()} — "${q.text}" (gain ${nextQ.gain.toFixed(2)})`,
       });
-      if (questionIdx + 1 < questionPool.length) {
-        setQuestionIdx((i) => i + 1);
-      } else {
-        finishQuestions();
-      }
     },
-    [questionPool, questionIdx, addAuditEntry]
+    [nextQ, addAuditEntry]
   );
 
   const finishQuestions = useCallback(() => {
@@ -140,6 +151,17 @@ export function IncidentMode({
     if (top?.category === 'gu') setStage('ultrasound');
     else setStage('result');
   }, [addAuditEntry, ranked, ambiguous]);
+
+  // Adaptive auto-advance: once we hit confidence, the max, or run out of
+  // useful questions, finish without asking another one. We wait until at
+  // least one answer is in so the operator doesn't skip past the first prompt.
+  useEffect(() => {
+    if (stage !== 'questions') return;
+    if (answeredOrder.length === 0) return;
+    if (!nextQ || answeredOrder.length >= MAX_QUESTIONS || confidenceReached || nextQ.gain < 0.05) {
+      finishQuestions();
+    }
+  }, [stage, answeredOrder.length, nextQ, confidenceReached, finishQuestions]);
 
   const handleCompareChoose = useCallback(
     (s: Scenario) => {
@@ -161,10 +183,19 @@ export function IncidentMode({
     else if (stage === 'compare') setStage('questions');
     else if (stage === 'ultrasound') setStage(ambiguous ? 'compare' : 'questions');
     else if (stage === 'questions') {
-      if (questionIdx > 0) setQuestionIdx((i) => i - 1);
-      else setStage('body');
+      if (answeredOrder.length > 0) {
+        const lastId = answeredOrder[answeredOrder.length - 1];
+        setAnsweredOrder((prev) => prev.slice(0, -1));
+        setAnswers((prev) => {
+          const next = { ...prev };
+          delete next[lastId];
+          return next;
+        });
+      } else {
+        setStage('body');
+      }
     }
-  }, [stage, ambiguous, questionIdx]);
+  }, [stage, ambiguous, answeredOrder]);
 
   const handleUltrasoundConfirm = useCallback(
     (key: UltrasoundFinding, label: string) => {
@@ -263,23 +294,24 @@ export function IncidentMode({
 
   // === RENDER ===
   return (
-    <div className={clsx('h-full flex flex-col', oneHanded === 'right' && 'items-end', oneHanded === 'left' && 'items-start')}>
-      <div className="px-6 pt-4 pb-2 w-full">
-        <div className="bg-rig-critical/15 border border-rig-critical/40 rounded-md p-3 flex items-center gap-3 glow-critical">
-          <AlertTriangle size={20} className="text-rig-critical shrink-0" />
-          <div className="flex-1">
-            <div className="text-[10px] uppercase tracking-widest text-rig-critical">Emergency Mode</div>
-            <div className="text-sm text-rig-text">{stageLabel(stage)}</div>
-          </div>
-          <div className="text-[10px] text-rig-ok font-mono flex items-center gap-1">
-            <CheckCircle size={11} /> 0 cloud calls
+    <div className={clsx('flex flex-col w-full', oneHanded === 'right' && 'items-end', oneHanded === 'left' && 'items-start')}>
+      <div className="w-full border-b border-rig-dim/10">
+        <div className="px-6 pt-4 pb-2">
+          <div className="bg-rig-critical/15 border border-rig-critical/40 rounded-md p-3 flex items-center gap-3 glow-critical">
+            <AlertTriangle size={20} className="text-rig-critical shrink-0" />
+            <div className="flex-1">
+              <div className="text-[10px] uppercase tracking-widest text-rig-critical">Emergency Mode</div>
+              <div className="text-sm text-rig-text">{stageLabel(stage)}</div>
+            </div>
+            <div className="text-[10px] text-rig-ok font-mono flex items-center gap-1">
+              <CheckCircle size={11} /> 0 cloud calls
+            </div>
           </div>
         </div>
+        <ProgressBar stage={stage} questionIdx={questionIdx} total={Math.max(1, questionPool.length)} />
       </div>
 
-      <ProgressBar stage={stage} questionIdx={questionIdx} total={Math.max(1, questionPool.length)} />
-
-      <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-32 w-full">
+      <div className="px-6 pb-16 w-full">
         <AnimatePresence mode="wait">
           {stage === 'body' && (
             <StageContainer key="body">
@@ -313,9 +345,9 @@ export function IncidentMode({
           {stage === 'questions' && (
             <StageContainer key="questions">
               <QuestionView
-                question={questionPool[questionIdx]}
-                index={questionIdx}
-                total={questionPool.length}
+                question={nextQ?.question}
+                index={answeredOrder.length}
+                total={MAX_QUESTIONS}
                 onAnswer={handleAnswer}
                 onBack={goBack}
                 extraInfo={extraInfo}
@@ -390,6 +422,21 @@ export function IncidentMode({
                     description: 'Immediate treatment steps reviewed — moving to "When is help arriving?"',
                   });
                   setStage('when_help');
+                }}
+                onTreatmentFailure={(stepId, action) => {
+                  addAuditEntry({
+                    mode: 'incident',
+                    type: 'decision',
+                    description: `Treatment failure reported on step ${stepId} — operator chose: ${action}`,
+                  });
+                }}
+                onEscalateEvacuation={() => {
+                  addAuditEntry({
+                    mode: 'incident',
+                    type: 'decision',
+                    description: 'Treatment failed — operator escalating to immediate evacuation (helicopter NOW)',
+                  });
+                  handleConfirmDecision('helicopter_now', true);
                 }}
               />
             </StageContainer>

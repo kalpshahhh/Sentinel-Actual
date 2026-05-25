@@ -12,12 +12,16 @@ import {
   ChevronDown,
   Image as ImageIcon,
   ShieldAlert,
+  TrendingDown,
+  Siren,
+  RotateCw,
+  ArrowUpRight,
 } from 'lucide-react';
 import type { Scenario } from '../types';
 import type { InventoryManifest } from '../types/inventory';
 import { CitationChip, CitationProvider } from './CitationChip';
 import { findDrugLocation } from '../data/equipment-lookup';
-import { enrichStep } from '../data/protocols';
+import { enrichStep, parseFrequencyHours } from '../data/protocols';
 import { InjectionDiagram } from './InjectionDiagram';
 import { TREATMENT_SUBSTITUTIONS } from '../data/treatmentSubstitutions';
 import { isDrugAvailable, getMedicationSubstitutes } from '../lib/inventory/engine';
@@ -29,9 +33,13 @@ type Props = {
   onComplete: () => void;
   /** When provided, steps are checked against live inventory and warnings/substitutions shown. */
   manifest?: InventoryManifest | null;
+  /** Called when the operator declares treatment failed and requests evacuation now. */
+  onEscalateEvacuation?: () => void;
+  /** Logged whenever the operator reports a step is not improving the patient. */
+  onTreatmentFailure?: (stepId: string, action: 'repeated' | 'advanced' | 'evacuated') => void;
 };
 
-export function TreatmentSteps({ scenario, onCitationLookup, onBack, onComplete, manifest }: Props) {
+export function TreatmentSteps({ scenario, onCitationLookup, onBack, onComplete, manifest, onEscalateEvacuation, onTreatmentFailure }: Props) {
   const steps = scenario.treatment.map((t) => enrichStep(t, scenario.condition));
   const [idx, setIdx] = useState(0);
   const [done, setDone] = useState<Record<string, boolean>>({});
@@ -40,6 +48,10 @@ export function TreatmentSteps({ scenario, onCitationLookup, onBack, onComplete,
   const [showDiagram, setShowDiagram] = useState(false);
   const [whyOpen, setWhyOpen] = useState(false);
   const [altOpen, setAltOpen] = useState(false);
+  const [escalateOpen, setEscalateOpen] = useState(false);
+  // Per-step failure counts. After 2 failures of the same step we hide the
+  // "repeat" option and push the operator to advance or evacuate.
+  const [failures, setFailures] = useState<Record<string, number>>({});
 
   const step = steps[idx];
   const total = steps.length;
@@ -91,6 +103,32 @@ export function TreatmentSteps({ scenario, onCitationLookup, onBack, onComplete,
   const next = () => {
     if (idx + 1 < total) goTo(idx + 1);
     else onComplete();
+  };
+
+  const stepFailures = step ? failures[step.id] ?? 0 : 0;
+  const canRepeat = !!step?.frequency && parseFrequencyHours(step.frequency) !== null && stepFailures < 2;
+  const canAdvance = idx + 1 < total;
+  const isLastStep = idx + 1 >= total;
+
+  const handleRepeat = () => {
+    if (!step) return;
+    setFailures((f) => ({ ...f, [step.id]: stepFailures + 1 }));
+    setEscalateOpen(false);
+    onTreatmentFailure?.(step.id, 'repeated');
+  };
+  const handleAdvance = () => {
+    if (!step) return;
+    setFailures((f) => ({ ...f, [step.id]: stepFailures + 1 }));
+    onTreatmentFailure?.(step.id, 'advanced');
+    setEscalateOpen(false);
+    if (idx + 1 < total) goTo(idx + 1);
+  };
+  const handleEvacuate = () => {
+    if (!step) return;
+    setFailures((f) => ({ ...f, [step.id]: stepFailures + 1 }));
+    onTreatmentFailure?.(step.id, 'evacuated');
+    setEscalateOpen(false);
+    onEscalateEvacuation?.();
   };
 
   if (!step) return null;
@@ -309,6 +347,23 @@ export function TreatmentSteps({ scenario, onCitationLookup, onBack, onComplete,
                 {isDone ? 'Marked done — click to undo' : 'Mark this step done'}
               </button>
             </div>
+
+            {/* Treatment-not-improving branch */}
+            {isDone && (
+              <div className="mt-3">
+                <button
+                  onClick={() => setEscalateOpen(true)}
+                  className="w-full px-4 py-3 rounded border-2 border-rig-critical/50 bg-rig-critical/10 text-rig-critical text-sm uppercase tracking-widest font-bold flex items-center justify-center gap-2 hover:bg-rig-critical/20"
+                >
+                  <TrendingDown size={15} /> Patient not improving
+                </button>
+                {stepFailures > 0 && (
+                  <div className="text-[10px] text-rig-dim mt-1 font-mono text-center">
+                    This step has failed {stepFailures} time{stepFailures > 1 ? 's' : ''}.
+                  </div>
+                )}
+              </div>
+            )}
           </motion.div>
         </AnimatePresence>
 
@@ -398,6 +453,71 @@ export function TreatmentSteps({ scenario, onCitationLookup, onBack, onComplete,
                   className="px-4 py-2 bg-rig-bg border border-rig-dim/40 rounded text-sm text-rig-text hover:bg-rig-surface"
                 >
                   Got it
+                </button>
+              </div>
+            </Modal>
+          )}
+          {escalateOpen && (
+            <Modal onClose={() => setEscalateOpen(false)} title="Treatment not working — escalate" tone="critical">
+              <p className="text-rig-text text-sm leading-relaxed mb-4">
+                Pick the next move. Sentinel will log the failure either way and the audit will carry it through to handoff.
+              </p>
+              <div className="space-y-2">
+                {canRepeat && (
+                  <button
+                    onClick={handleRepeat}
+                    className="w-full p-3 rounded border border-rig-accent/40 bg-rig-bg hover:bg-rig-surface text-left flex items-start gap-3"
+                  >
+                    <RotateCw size={16} className="text-rig-accent mt-0.5 shrink-0" />
+                    <div>
+                      <div className="text-sm text-rig-text font-bold">Repeat this step</div>
+                      <div className="text-[11px] text-rig-dim mt-0.5">
+                        Give another dose at the {step.frequency} interval. Watch for response before escalating.
+                      </div>
+                    </div>
+                  </button>
+                )}
+                {canAdvance && (
+                  <button
+                    onClick={handleAdvance}
+                    className="w-full p-3 rounded border border-rig-accent/40 bg-rig-bg hover:bg-rig-surface text-left flex items-start gap-3"
+                  >
+                    <ArrowUpRight size={16} className="text-rig-accent mt-0.5 shrink-0" />
+                    <div>
+                      <div className="text-sm text-rig-text font-bold">
+                        Advance to step {idx + 2}: {steps[idx + 1]?.action}
+                      </div>
+                      <div className="text-[11px] text-rig-dim mt-0.5">
+                        The next step in this protocol is more aggressive. Do it now.
+                      </div>
+                    </div>
+                  </button>
+                )}
+                {onEscalateEvacuation && (
+                  <button
+                    onClick={handleEvacuate}
+                    className="w-full p-3 rounded border-2 border-rig-critical/50 bg-rig-critical/10 hover:bg-rig-critical/20 text-left flex items-start gap-3"
+                  >
+                    <Siren size={16} className="text-rig-critical mt-0.5 shrink-0" />
+                    <div>
+                      <div className="text-sm text-rig-critical font-bold uppercase tracking-widest">
+                        Call evacuation now
+                      </div>
+                      <div className="text-[11px] text-rig-dim mt-0.5">
+                        {isLastStep
+                          ? 'You are at the last step of the protocol. Onboard care is no longer sufficient.'
+                          : 'Skip remaining steps. Patient needs hospital-level care immediately.'}
+                      </div>
+                    </div>
+                  </button>
+                )}
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={() => setEscalateOpen(false)}
+                  className="px-3 py-1.5 bg-rig-bg border border-rig-dim/40 rounded text-xs text-rig-dim hover:bg-rig-surface uppercase tracking-widest"
+                >
+                  Keep monitoring
                 </button>
               </div>
             </Modal>

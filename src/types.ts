@@ -242,6 +242,50 @@ export type Case = {
 
 export type InventoryPreset = 'offshore' | 'polar';
 
+export type SiteType =
+  | 'offshore_supply'
+  | 'fishing_vessel'
+  | 'oil_rig'
+  | 'polar_research'
+  | 'remote_clinic'
+  | 'expedition';
+
+export type GeoRegion =
+  | 'arctic_polar'
+  | 'north_sea_offshore'
+  | 'tropical'
+  | 'temperate_open_ocean'
+  | 'remote_continental';
+
+export type CommsCapability =
+  | 'sat_phone'
+  | 'vhf_only'
+  | 'cellular'
+  | 'none';
+
+/**
+ * Operational capability profile gathered during onboarding. Determines which
+ * emergencies the LLM compiles into the offline graph and shapes incident-time
+ * decisions (evac vs. onboard-extended-care).
+ */
+export type CapabilityProfile = {
+  siteType: SiteType;
+  region: GeoRegion;
+  /** Free-text label, e.g. "Aberdeen Royal Infirmary" or "Tromsø UNN". */
+  nearestEvac: string;
+  /** Approximate distance to the evac point in km. Used to sanity-check ETA. */
+  nearestEvacKm: number;
+  /** Whether evacuation is operationally possible at all from this site. */
+  evacPossible: boolean;
+  /** Expected medic/helicopter arrival time in hours, given current weather/distance. */
+  expectedMedicEtaHours: number;
+  comms: CommsCapability;
+  /** Free-text constraints (e.g. "no helideck — winch only", "weather window closed Dec-Feb"). */
+  constraints: string;
+  /** ISO timestamp when this profile was saved. */
+  savedAt: string;
+};
+
 export type AppMode = 'deploy' | 'incident' | 'handoff';
 
 export type OneHandedMode = 'off' | 'left' | 'right';

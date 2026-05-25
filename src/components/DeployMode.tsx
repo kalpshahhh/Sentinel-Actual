@@ -14,7 +14,7 @@ import {
   Activity,
   XCircle,
 } from 'lucide-react';
-import type { AuditEntry, Equipment, InventoryPreset, Scenario, Vessel } from '../types';
+import type { AuditEntry, CapabilityProfile, Equipment, InventoryPreset, Scenario, Vessel } from '../types';
 import type { InventoryManifest } from '../types/inventory';
 import { callClaude } from '../lib/anthropic';
 import { PROTOCOL_COMPILATION_PROMPT } from '../lib/prompts';
@@ -43,6 +43,7 @@ type Props = {
   inventoryManifest: InventoryManifest | null;
   onManifestImported: (manifest: InventoryManifest) => void;
   onBackToCommand?: () => void;
+  capabilityProfile?: CapabilityProfile | null;
 };
 
 export function DeployMode({
@@ -58,6 +59,7 @@ export function DeployMode({
   inventoryManifest,
   onManifestImported,
   onBackToCommand,
+  capabilityProfile,
 }: Props) {
   const [stage, setStage] = useState<Stage>(compiledScenarios.length > 0 ? 'compiled' : 'idle');
   const [discoveredCount, setDiscoveredCount] = useState(0);
@@ -126,6 +128,7 @@ export function DeployMode({
 
     const payload = {
       vessel,
+      capabilityProfile: capabilityProfile ?? undefined,
       inventory: inventory.map((e) => ({
         id: e.id,
         name: e.name,
@@ -348,7 +351,7 @@ export function DeployMode({
 
   if (stage === 'compiling') {
     return (
-      <div className="p-8 max-w-3xl mx-auto h-full flex flex-col items-center justify-center text-center">
+      <div className="p-8 max-w-3xl mx-auto min-h-[70vh] flex flex-col items-center justify-center text-center">
         <Header preset={preset} vessel={vessel} />
         <div className="mt-12 flex flex-col items-center gap-4">
           <Hourglass size={48} className="text-rig-accent animate-spin" style={{ animationDuration: '2.5s' }} />
