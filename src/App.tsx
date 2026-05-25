@@ -10,7 +10,11 @@ import type {
   Scenario,
 } from './types';
 import type { InventoryManifest } from './types/inventory';
-import { loadManifest, saveManifest, addInventoryAudit, makeAuditId } from './lib/inventory/db';
+import {
+  loadManifest, saveManifest, addInventoryAudit, makeAuditId,
+  saveCase, loadAllCases, appendAuditEntry,
+} from './lib/inventory/db';
+import { loadIncidentStateAsync, type PersistedIncident } from './lib/incidentPersistence';
 import { getVesselForPreset } from './data/vessel';
 import { getInventoryForPreset } from './data/equipment';
 import { getFallbackScenarios } from './data/protocols';
@@ -46,7 +50,6 @@ import { DeployMode } from './components/DeployMode';
 import { IncidentMode } from './components/IncidentMode';
 import { HandoffMode } from './components/HandoffMode';
 
-const CASES_STORAGE_KEY = 'sentinel-cases';
 const SAT_TARGET_KEY = 'sentinel-sat-target';
 const OPERATOR_MODE_KEY = 'sentinel-operator-mode';
 const SAT_WINDOW_INITIAL = 47 * 60 + 13;
@@ -78,17 +81,6 @@ function makeCaseId(): string {
   return `CASE-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${letter}${num}`;
 }
 
-function loadCases(): Case[] {
-  try {
-    const raw = localStorage.getItem(CASES_STORAGE_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as Case[];
-  } catch { return []; }
-}
-
-function persistCases(cases: Case[]) {
-  try { localStorage.setItem(CASES_STORAGE_KEY, JSON.stringify(cases)); } catch {}
-}
 
 export default function App() {
   const [mode, setMode] = useState<AppMode>('deploy');
@@ -97,7 +89,8 @@ export default function App() {
   const [currentCase, setCurrentCase] = useState<Case | null>(null);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const [cloudCalls, setCloudCalls] = useState(0);
-  const [resolvedCases, setResolvedCases] = useState<Case[]>(() => loadCases());
+  const [resolvedCases, setResolvedCases] = useState<Case[]>([]);
+  const [incidentDraft, setIncidentDraft] = useState<PersistedIncident | null>(null);
   const [caseId, setCaseId] = useState<string>(() => makeCaseId());
   const [satTargetTs, setSatTargetTs] = useState<number>(() => loadOrInitSatTarget());
   const [satelliteCountdownSec, setSatelliteCountdownSec] = useState<number>(() =>
@@ -132,7 +125,12 @@ export default function App() {
 
   useEffect(() => {
     loadManifest().then((m) => { if (m) setInventoryManifest(m); }).catch(() => {});
+    loadAllCases().then(setResolvedCases).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    loadIncidentStateAsync(caseId).then(setIncidentDraft).catch(() => {});
+  }, [caseId]);
 
   // Seed the registry with the two built-in vessels on first launch so they
   // always appear in VesselPicker even before the operator runs onboarding.
@@ -251,6 +249,17 @@ export default function App() {
     try { localStorage.setItem(OPERATOR_MODE_KEY, operatorMode ? '1' : '0'); } catch {}
   }, [operatorMode]);
 
+  // Reload capability profile and cases when connectivity is restored
+  useEffect(() => {
+    const handleOnline = () => {
+      loadAllCases().then(setResolvedCases).catch(() => {});
+      const refreshed = loadCapabilityProfile();
+      if (refreshed) setCapabilityProfile(refreshed);
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, []);
+
   const handleManifestImported = useCallback((manifest: InventoryManifest) => {
     setInventoryManifest(manifest);
     void saveManifest(manifest);
@@ -271,8 +280,9 @@ export default function App() {
         timestamp: new Date().toISOString(),
       };
       setAuditLog((prev) => [...prev, full]);
+      void appendAuditEntry(full, caseId);
     },
-    []
+    [caseId]
   );
 
   const architecture: ArchitectureCounters = useMemo(
@@ -358,12 +368,11 @@ export default function App() {
   const handleResolveAndReset = useCallback(() => {
     if (currentCase) {
       const resolved: Case = { ...currentCase, resolved: true };
-      const updated = [...resolvedCases, resolved];
-      setResolvedCases(updated);
-      persistCases(updated);
+      setResolvedCases((prev) => [...prev, resolved]);
+      void saveCase(resolved);
     }
     handleResetDeploy();
-  }, [currentCase, resolvedCases, handleResetDeploy]);
+  }, [currentCase, handleResetDeploy]);
 
   useKeyboard({
     onResetDeploy: handleResetDeploy,
@@ -620,6 +629,8 @@ export default function App() {
                 fastForwardKey={fastForwardKey}
                 oneHanded={env.oneHanded}
                 inventoryManifest={inventoryManifest}
+                capabilityProfile={capabilityProfile}
+                restoredDraft={incidentDraft}
               />
             )}
             {mode === 'handoff' && currentCase && (

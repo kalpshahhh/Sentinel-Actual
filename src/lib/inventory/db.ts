@@ -1,13 +1,21 @@
 import Dexie, { type Table } from 'dexie';
 import type { InventoryManifest, InventoryAuditEntry } from '../../types/inventory';
+import type { AuditEntry, Case } from '../../types';
+import type { PersistedIncident } from '../incidentPersistence';
 
 type ManifestRecord = InventoryManifest & { _key: string };
 type SessionRecord = { key: string; value: unknown };
+type AuditLogRecord = AuditEntry & { caseId: string };
+type IncidentDraftRecord = PersistedIncident & { key: string };
 
 class SentinelDB extends Dexie {
   manifests!: Table<ManifestRecord, string>;
   inventoryAudit!: Table<InventoryAuditEntry, string>;
   deploySession!: Table<SessionRecord, string>;
+  // v2 — persistent incident data
+  cases!: Table<Case, string>;
+  auditLog!: Table<AuditLogRecord, string>;
+  incidentDraft!: Table<IncidentDraftRecord, string>;
 
   constructor() {
     super('sentinel-v2');
@@ -15,6 +23,14 @@ class SentinelDB extends Dexie {
       manifests: '_key, vesselId, importedAt',
       inventoryAudit: 'id, timestamp, action, source',
       deploySession: 'key',
+    });
+    this.version(2).stores({
+      manifests: '_key, vesselId, importedAt',
+      inventoryAudit: 'id, timestamp, action, source',
+      deploySession: 'key',
+      cases: 'id, startedAt, resolved',
+      auditLog: 'id, timestamp, mode, caseId',
+      incidentDraft: 'key',
     });
   }
 }
@@ -59,4 +75,51 @@ export async function loadSessionValue<T>(key: string): Promise<T | null> {
 /** Generate a unique audit entry id. */
 export function makeAuditId(): string {
   return `inv_audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// === Incident case persistence ===
+
+export async function saveCase(kase: Case): Promise<void> {
+  await db.cases.put(kase);
+}
+
+export async function loadResolvedCases(): Promise<Case[]> {
+  return db.cases.where('resolved').equals(1).sortBy('startedAt');
+}
+
+export async function loadAllCases(): Promise<Case[]> {
+  return db.cases.orderBy('startedAt').toArray();
+}
+
+// === Audit log persistence ===
+
+export async function appendAuditEntry(entry: AuditEntry, caseId: string): Promise<void> {
+  await db.auditLog.put({ ...entry, caseId });
+}
+
+export async function loadAuditLog(caseId: string): Promise<AuditEntry[]> {
+  const records = await db.auditLog.where('caseId').equals(caseId).sortBy('timestamp');
+  return records.map(({ caseId: _cid, ...entry }) => entry as AuditEntry);
+}
+
+// === Active incident draft (replaces localStorage) ===
+
+const DRAFT_KEY = 'active';
+
+export async function saveIncidentDraft(draft: PersistedIncident): Promise<void> {
+  await db.incidentDraft.put({ ...draft, key: DRAFT_KEY });
+}
+
+export async function loadIncidentDraft(caseId: string): Promise<PersistedIncident | null> {
+  const rec = await db.incidentDraft.get(DRAFT_KEY);
+  if (!rec || rec.caseId !== caseId) return null;
+  const age = Date.now() - new Date(rec.savedAt).getTime();
+  if (age > 6 * 3600_000) return null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { key: _key, ...draft } = rec;
+  return draft as PersistedIncident;
+}
+
+export async function clearIncidentDraft(): Promise<void> {
+  await db.incidentDraft.delete(DRAFT_KEY);
 }
