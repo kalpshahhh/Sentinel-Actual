@@ -9,10 +9,16 @@ import {
   HelpCircle,
   Zap,
   FileText,
+  Bell,
+  Clock,
+  Plane,
+  XCircle,
+  Radio,
 } from 'lucide-react';
-import type { AuditEntry, BodyRegion, Case, OneHandedMode, Scenario, Vessel, Vitals } from '../types';
+import type { AuditEntry, BodyRegion, CapabilityProfile, Case, OneHandedMode, Scenario, Vessel, Vitals } from '../types';
 import type { InventoryManifest } from '../types/inventory';
 import { buildQuestionPool, rankFromAnswers, nextBestQuestion, type Answer, type QuestionEntry } from '../data/protocols';
+import { saveIncidentState, clearIncidentState, type PersistedIncident } from '../lib/incidentPersistence';
 import { InteractiveBody } from './InteractiveBody';
 import { CompareConditions } from './CompareConditions';
 import { TreatmentSteps } from './TreatmentSteps';
@@ -31,9 +37,12 @@ type Props = {
   fastForwardKey: number;
   oneHanded: OneHandedMode;
   inventoryManifest?: InventoryManifest | null;
+  capabilityProfile?: CapabilityProfile | null;
+  /** Pre-loaded draft from Dexie — avoids async reads inside the component. */
+  restoredDraft?: PersistedIncident | null;
 };
 
-type Stage = 'body' | 'questions' | 'compare' | 'ultrasound' | 'result' | 'steps' | 'when_help' | 'wait_plan';
+type Stage = 'setup' | 'body' | 'questions' | 'compare' | 'ultrasound' | 'result' | 'steps' | 'when_help' | 'wait_plan';
 
 export function IncidentMode({
   caseId,
@@ -44,22 +53,53 @@ export function IncidentMode({
   fastForwardKey,
   oneHanded,
   inventoryManifest,
+  capabilityProfile,
+  restoredDraft,
 }: Props) {
-  const [stage, setStage] = useState<Stage>('body');
-  const [regions, setRegions] = useState<BodyRegion[]>([]);
-  const [answers, setAnswers] = useState<Record<string, Answer>>({});
-  const [answeredOrder, setAnsweredOrder] = useState<string[]>([]);
+  const restored = restoredDraft ?? null;
+
+  const [stage, setStage] = useState<Stage>((restored?.stage as Stage) ?? 'setup');
+  // Setup stage state
+  const [medicNotified, setMedicNotified] = useState(restored?.medicNotified ?? false);
+  const [upfrontEtaHours, setUpfrontEtaHours] = useState<number>(
+    restored?.upfrontEtaHours ?? capabilityProfile?.expectedMedicEtaHours ?? 2
+  );
+  const [evacConfirmed, setEvacConfirmed] = useState<boolean>(
+    restored?.evacConfirmed ?? capabilityProfile?.evacPossible ?? true
+  );
+  const [regions, setRegions] = useState<BodyRegion[]>(restored?.regions ?? []);
+  const [answers, setAnswers] = useState<Record<string, Answer>>(restored?.answers ?? {});
+  const [answeredOrder, setAnsweredOrder] = useState<string[]>(restored?.answeredOrder ?? []);
   const MAX_QUESTIONS = 6;
   const questionIdx = answeredOrder.length;
-  const [extraInfo, setExtraInfo] = useState<string>('');
+  const [extraInfo, setExtraInfo] = useState<string>(restored?.extraInfo ?? '');
   const [ultrasoundFinding, setUltrasoundFinding] = useState<{ key: UltrasoundFinding; label: string } | null>(null);
   const [confirmedScenarioId, setConfirmedScenarioId] = useState<string | null>(null);
-  const [helpInHours, setHelpInHours] = useState<number | null>(null);
+  const [helpInHours, setHelpInHours] = useState<number | null>(restored?.helpInHours ?? null);
   const [stageStartedAt] = useState<Date>(() => new Date());
 
-  const startedAtRef = useRef<string>(new Date().toISOString());
+  const startedAtRef = useRef<string>(restored?.startedAt ?? new Date().toISOString());
   const incidentLoggedRef = useRef(false);
   const fastForwardHandledRef = useRef(0);
+
+  // Auto-save incident state so it survives page reloads
+  useEffect(() => {
+    if (stage === 'body' || stage === 'questions' || stage === 'compare' || stage === 'result' || stage === 'steps' || stage === 'when_help' || stage === 'wait_plan') {
+      saveIncidentState({
+        caseId,
+        stage,
+        regions,
+        answers,
+        answeredOrder,
+        extraInfo,
+        medicNotified,
+        upfrontEtaHours,
+        evacConfirmed,
+        helpInHours,
+        startedAt: startedAtRef.current,
+      });
+    }
+  }, [stage, regions, answers, answeredOrder, extraInfo, medicNotified, upfrontEtaHours, evacConfirmed, helpInHours, caseId]);
 
   useEffect(() => {
     if (incidentLoggedRef.current) return;
@@ -76,6 +116,22 @@ export function IncidentMode({
       description: 'Captain override available at all decision points',
     });
   }, [addAuditEntry, caseId, vessel.name]);
+
+  const handleSetupComplete = useCallback(() => {
+    addAuditEntry({
+      mode: 'incident',
+      type: 'decision',
+      description: `Setup confirmed — medic notified: ${medicNotified ? 'yes' : 'no'} · upfront ETA: ${upfrontEtaHours}h · evac possible: ${evacConfirmed ? 'yes' : 'no'}`,
+      data: { medicNotified, upfrontEtaHours, evacConfirmed },
+    });
+    // Diagnostic engine algorithm explanation for audit trail
+    addAuditEntry({
+      mode: 'incident',
+      type: 'recommendation',
+      description: 'Diagnostic engine: entropy-based question selection — each question scored by split-score × ambiguity boost × relevance. No cloud calls.',
+    });
+    setStage('body');
+  }, [addAuditEntry, medicNotified, upfrontEtaHours, evacConfirmed]);
 
   // Question pool built from the regions
   const questionPool = useMemo<QuestionEntry[]>(
@@ -194,6 +250,8 @@ export function IncidentMode({
       } else {
         setStage('body');
       }
+    } else if (stage === 'body') {
+      setStage('setup');
     }
   }, [stage, ambiguous, answeredOrder]);
 
@@ -254,6 +312,7 @@ export function IncidentMode({
         },
         resolved: false,
       };
+      clearIncidentState();
       onConfirm(kase);
     },
     [topScenario, addAuditEntry, caseId, regions, answers, extraInfo, derivedVitals, ranked, ultrasoundFinding, onConfirm]
@@ -266,6 +325,8 @@ export function IncidentMode({
     if (fastForwardKey === 0) return;
     let cancelled = false;
     void (async () => {
+      setMedicNotified(true);
+      setStage('body');
       setRegions(['flank_right']);
       await new Promise((r) => setTimeout(r, 280));
       if (cancelled) return;
@@ -313,6 +374,21 @@ export function IncidentMode({
 
       <div className="px-6 pb-16 w-full">
         <AnimatePresence mode="wait">
+          {stage === 'setup' && (
+            <StageContainer key="setup">
+              <SetupStage
+                capabilityProfile={capabilityProfile}
+                medicNotified={medicNotified}
+                upfrontEtaHours={upfrontEtaHours}
+                evacConfirmed={evacConfirmed}
+                onMedicNotified={setMedicNotified}
+                onEtaChange={setUpfrontEtaHours}
+                onEvacChange={setEvacConfirmed}
+                onContinue={handleSetupComplete}
+              />
+            </StageContainer>
+          )}
+
           {stage === 'body' && (
             <StageContainer key="body">
               <h1 className="text-3xl sm:text-4xl font-bold tracking-wider text-rig-text mb-2 text-center">
@@ -504,10 +580,12 @@ function StageContainer({ children }: { children: React.ReactNode }) {
 
 function stageLabel(s: Stage): string {
   switch (s) {
+    case 'setup':
+      return 'Step 1 — notify medic + confirm ETA';
     case 'body':
-      return 'Step 1 — tap every painful spot';
+      return 'Step 2 — tap every painful spot';
     case 'questions':
-      return 'Step 2 — yes / no questions';
+      return 'Step 3 — yes / no questions';
     case 'compare':
       return 'Comparing top possibilities';
     case 'ultrasound':
@@ -525,9 +603,10 @@ function stageLabel(s: Stage): string {
 
 function ProgressBar({ stage, questionIdx, total }: { stage: Stage; questionIdx: number; total: number }) {
   let pct = 0;
-  if (stage === 'body') pct = 4;
-  else if (stage === 'questions') pct = 18 + (questionIdx / total) * 22;
-  else if (stage === 'compare') pct = 45;
+  if (stage === 'setup') pct = 2;
+  else if (stage === 'body') pct = 10;
+  else if (stage === 'questions') pct = 22 + (questionIdx / total) * 20;
+  else if (stage === 'compare') pct = 47;
   else if (stage === 'ultrasound') pct = 55;
   else if (stage === 'result') pct = 65;
   else if (stage === 'steps') pct = 80;
@@ -607,6 +686,166 @@ function QuestionView({
       <button onClick={onBack} className="mt-6 px-4 py-2 text-xs uppercase tracking-widest text-rig-dim hover:text-rig-text flex items-center gap-1">
         <ArrowLeft size={12} /> back
       </button>
+    </div>
+  );
+}
+
+// === Setup stage — medic notification + ETA capture ===
+
+const ETA_OPTIONS: Array<{ label: string; hours: number }> = [
+  { label: 'Medic already here', hours: 0 },
+  { label: '15–30 min', hours: 0.5 },
+  { label: '1 hour', hours: 1 },
+  { label: '2–3 hours', hours: 2.5 },
+  { label: '4+ hours', hours: 5 },
+  { label: 'Unknown / impossible', hours: 24 },
+];
+
+function SetupStage({
+  capabilityProfile,
+  medicNotified,
+  upfrontEtaHours,
+  evacConfirmed,
+  onMedicNotified,
+  onEtaChange,
+  onEvacChange,
+  onContinue,
+}: {
+  capabilityProfile?: CapabilityProfile | null;
+  medicNotified: boolean;
+  upfrontEtaHours: number;
+  evacConfirmed: boolean;
+  onMedicNotified: (v: boolean) => void;
+  onEtaChange: (h: number) => void;
+  onEvacChange: (v: boolean) => void;
+  onContinue: () => void;
+}) {
+  return (
+    <div className="max-w-2xl mx-auto">
+      {/* Header */}
+      <div className="text-center mb-6">
+        <div className="text-[10px] uppercase tracking-widest text-rig-critical font-mono mb-2 flex items-center justify-center gap-2">
+          <Bell size={11} className="animate-pulse" /> Incident Activated
+        </div>
+        <h1 className="text-3xl font-bold uppercase tracking-widest text-rig-text">Before we start</h1>
+        <p className="text-sm text-rig-dim mt-1">Confirm notification and evacuation status first.</p>
+      </div>
+
+      {/* Medic notification */}
+      <div className="bg-rig-surface border border-rig-dim/30 rounded-lg p-4 mb-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Bell size={14} className="text-rig-critical" />
+          <span className="text-[11px] uppercase tracking-widest text-rig-dim">Medic / Captain Notified?</span>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => onMedicNotified(true)}
+            className={clsx(
+              'flex-1 py-3 rounded border-2 font-bold uppercase tracking-widest text-sm flex items-center justify-center gap-2',
+              medicNotified
+                ? 'bg-rig-ok/20 border-rig-ok text-rig-ok'
+                : 'bg-rig-surface border-rig-dim/40 text-rig-dim hover:border-rig-ok/50 hover:text-rig-ok'
+            )}
+          >
+            <CheckCircle size={16} /> Yes — notified
+          </button>
+          <button
+            onClick={() => onMedicNotified(false)}
+            className={clsx(
+              'flex-1 py-3 rounded border-2 font-bold uppercase tracking-widest text-sm flex items-center justify-center gap-2',
+              !medicNotified
+                ? 'bg-rig-critical/20 border-rig-critical text-rig-critical'
+                : 'bg-rig-surface border-rig-dim/40 text-rig-dim hover:border-rig-critical/50'
+            )}
+          >
+            <AlertTriangle size={16} /> Not yet
+          </button>
+        </div>
+        {!medicNotified && (
+          <p className="text-[10px] text-rig-critical mt-2 flex items-center gap-1">
+            <AlertTriangle size={9} /> Notify the captain or medic by radio before proceeding.
+          </p>
+        )}
+      </div>
+
+      {/* ETA picker */}
+      <div className="bg-rig-surface border border-rig-dim/30 rounded-lg p-4 mb-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Clock size={14} className="text-rig-accent" />
+          <span className="text-[11px] uppercase tracking-widest text-rig-dim">Medic / Help ETA</span>
+          {capabilityProfile && (
+            <span className="ml-auto text-[9px] font-mono text-rig-dim">
+              Profile: {capabilityProfile.expectedMedicEtaHours}h to {capabilityProfile.nearestEvac}
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {ETA_OPTIONS.map((opt) => (
+            <button
+              key={opt.label}
+              onClick={() => onEtaChange(opt.hours)}
+              className={clsx(
+                'py-2.5 px-3 rounded border text-xs font-bold uppercase tracking-wider text-center',
+                upfrontEtaHours === opt.hours
+                  ? 'bg-rig-accent/20 border-rig-accent text-rig-accent'
+                  : 'bg-rig-bg border-rig-dim/30 text-rig-dim hover:border-rig-accent/50 hover:text-rig-text'
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Evacuation capability */}
+      <div className="bg-rig-surface border border-rig-dim/30 rounded-lg p-4 mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <Plane size={14} className="text-rig-accent" />
+          <span className="text-[11px] uppercase tracking-widest text-rig-dim">Evacuation Available?</span>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => onEvacChange(true)}
+            className={clsx(
+              'flex-1 py-3 rounded border-2 font-bold uppercase tracking-widest text-sm flex items-center justify-center gap-2',
+              evacConfirmed
+                ? 'bg-rig-ok/20 border-rig-ok text-rig-ok'
+                : 'bg-rig-surface border-rig-dim/40 text-rig-dim hover:border-rig-ok/50'
+            )}
+          >
+            <Plane size={15} /> Helicopter / shore possible
+          </button>
+          <button
+            onClick={() => onEvacChange(false)}
+            className={clsx(
+              'flex-1 py-3 rounded border-2 font-bold uppercase tracking-widest text-sm flex items-center justify-center gap-2',
+              !evacConfirmed
+                ? 'bg-rig-critical/20 border-rig-critical text-rig-critical'
+                : 'bg-rig-surface border-rig-dim/40 text-rig-dim hover:border-rig-critical/50'
+            )}
+          >
+            <XCircle size={15} /> No evac — onboard only
+          </button>
+        </div>
+        {capabilityProfile?.constraints && (
+          <p className="text-[10px] text-rig-dim mt-2 flex items-center gap-1">
+            <Radio size={9} /> {capabilityProfile.constraints}
+          </p>
+        )}
+      </div>
+
+      {/* Continue */}
+      <button
+        onClick={onContinue}
+        className="w-full px-6 py-5 bg-rig-critical text-rig-text font-bold uppercase tracking-widest rounded-md hover:bg-rig-critical/85 flex items-center justify-center gap-3 text-lg glow-critical"
+      >
+        <AlertTriangle size={22} />
+        Start Assessment
+        <ArrowRight size={22} />
+      </button>
+      <p className="text-[10px] text-rig-dim text-center mt-2 font-mono">
+        0 cloud calls · pre-compiled offline protocols
+      </p>
     </div>
   );
 }
