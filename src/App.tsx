@@ -8,8 +8,13 @@ import type {
   InventoryPreset,
   Scenario,
 } from './types';
+import type { InventoryManifest } from './types/inventory';
+import { loadManifest, saveManifest, addInventoryAudit, makeAuditId } from './lib/inventory/db';
 import { getVesselForPreset } from './data/vessel';
 import { getInventoryForPreset } from './data/equipment';
+import { getFallbackScenarios } from './data/protocols';
+import { ModeSelector, type AppSessionMode } from './components/ModeSelector';
+import { CommandCenter } from './components/CommandCenter';
 import { useEnvironment } from './hooks/useEnvironment';
 import { useMotion } from './hooks/useMotion';
 import { useSound } from './hooks/useSound';
@@ -25,22 +30,15 @@ import { HandoffMode } from './components/HandoffMode';
 const CASES_STORAGE_KEY = 'sentinel-cases';
 const SAT_TARGET_KEY = 'sentinel-sat-target';
 const OPERATOR_MODE_KEY = 'sentinel-operator-mode';
-const SAT_WINDOW_INITIAL = 47 * 60 + 13; // 47:13
-const SAT_WINDOW_NEXT = 1 * 3600 + 23 * 60; // 1:23:00
+const SAT_WINDOW_INITIAL = 47 * 60 + 13;
+const SAT_WINDOW_NEXT = 1 * 3600 + 23 * 60;
 
-/**
- * Persistent satellite-window countdown: stores the wall-clock target in localStorage
- * so the timer survives page reloads. Real low-Earth-orbit sat passes are typically
- * 10-15 min apart; we use a longer demo cadence.
- */
 function loadOrInitSatTarget(): number {
   try {
     const raw = localStorage.getItem(SAT_TARGET_KEY);
     if (raw) {
       const ts = parseInt(raw, 10);
-      if (Number.isFinite(ts) && ts > Date.now() - 24 * 3600_000) {
-        return ts;
-      }
+      if (Number.isFinite(ts) && ts > Date.now() - 24 * 3600_000) return ts;
     }
   } catch {}
   const next = Date.now() + SAT_WINDOW_INITIAL * 1000;
@@ -66,17 +64,11 @@ function loadCases(): Case[] {
     const raw = localStorage.getItem(CASES_STORAGE_KEY);
     if (!raw) return [];
     return JSON.parse(raw) as Case[];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 function persistCases(cases: Case[]) {
-  try {
-    localStorage.setItem(CASES_STORAGE_KEY, JSON.stringify(cases));
-  } catch {
-    // ignore
-  }
+  try { localStorage.setItem(CASES_STORAGE_KEY, JSON.stringify(cases)); } catch {}
 }
 
 export default function App() {
@@ -97,8 +89,19 @@ export default function App() {
   const [operatorMode, setOperatorMode] = useState<boolean>(() => {
     try { return localStorage.getItem(OPERATOR_MODE_KEY) === '1'; } catch { return false; }
   });
+  const [inventoryManifest, setInventoryManifest] = useState<InventoryManifest | null>(null);
+  const [appSession, setAppSession] = useState<AppSessionMode | null>(null);
+  const [showCommandCenter, setShowCommandCenter] = useState(false);
+  const [demoOffline, setDemoOffline] = useState(false);
+
+  const isDemo = appSession === 'demo';
+  const isOnboarding = appSession === 'onboarding';
 
   const incidentRequestRef = useRef<number>(0);
+
+  useEffect(() => {
+    loadManifest().then((m) => { if (m) setInventoryManifest(m); }).catch(() => {});
+  }, []);
 
   const vessel = useMemo(() => getVesselForPreset(inventoryPreset), [inventoryPreset]);
   const inventory = useMemo(() => getInventoryForPreset(inventoryPreset), [inventoryPreset]);
@@ -109,12 +112,10 @@ export default function App() {
 
   useMotion(setMotionLevel);
   const gyro = useGyro();
-  // If real gyro reports motion, propagate to env (auto-trip rough seas).
   useEffect(() => {
     if (gyro.motionLevel > 0) setMotionLevel(gyro.motionLevel);
   }, [gyro.motionLevel, setMotionLevel]);
 
-  // Real-clock satellite countdown — persists across reloads
   useEffect(() => {
     const id = setInterval(() => {
       const remaining = Math.max(0, Math.round((satTargetTs - Date.now()) / 1000));
@@ -130,10 +131,21 @@ export default function App() {
     return () => clearInterval(id);
   }, [satTargetTs, sound]);
 
-  // Persist operator-mode preference
   useEffect(() => {
     try { localStorage.setItem(OPERATOR_MODE_KEY, operatorMode ? '1' : '0'); } catch {}
   }, [operatorMode]);
+
+  const handleManifestImported = useCallback((manifest: InventoryManifest) => {
+    setInventoryManifest(manifest);
+    void saveManifest(manifest);
+    void addInventoryAudit({
+      id: makeAuditId(),
+      timestamp: new Date().toISOString(),
+      action: 'import',
+      source: manifest.importSource,
+      description: `Inventory imported via ${manifest.importSource} — ${manifest.medications.length} medications, ${manifest.devices.length} devices`,
+    });
+  }, []);
 
   const addAuditEntry = useCallback(
     (entry: Omit<AuditEntry, 'id' | 'timestamp'>) => {
@@ -165,6 +177,7 @@ export default function App() {
     setCurrentCase(null);
     setAuditLog([]);
     setCaseId(makeCaseId());
+    setShowCommandCenter(true);
   }, []);
 
   const handleHardReset = useCallback(() => {
@@ -190,10 +203,24 @@ export default function App() {
     [inventoryPreset, handleHardReset]
   );
 
+  const triggerIncidentNow = useCallback(() => {
+    // Ensure protocols are compiled (use fallback if not yet)
+    if (compiledScenarios.length === 0) {
+      const fb = getFallbackScenarios(inventoryPreset);
+      setCompiledScenarios(fb);
+      setCloudCalls(0);
+    }
+    incidentRequestRef.current += 1;
+    setMode('incident');
+    setShowCommandCenter(false);
+    sound.playAlert();
+  }, [compiledScenarios.length, inventoryPreset, sound]);
+
   const handleTriggerIncident = useCallback(() => {
     if (mode !== 'deploy' || compiledScenarios.length === 0) return;
     incidentRequestRef.current += 1;
     setMode('incident');
+    setShowCommandCenter(false);
     sound.playAlert();
   }, [mode, compiledScenarios.length, sound]);
 
@@ -243,6 +270,19 @@ export default function App() {
     env.gloved && 'gloved'
   );
 
+  // Full-screen mode picker before any session
+  if (appSession === null) {
+    return (
+      <ModeSelector
+        onSelect={(m) => {
+          setAppSession(m);
+          setShowCommandCenter(true);
+          setMode('deploy');
+        }}
+      />
+    );
+  }
+
   return (
     <div className={rootClasses}>
       <div className={clsx('absolute inset-0 flex flex-col', env.roughSeas && 'rough-seas')}>
@@ -252,16 +292,36 @@ export default function App() {
           satelliteCountdownSec={satelliteCountdownSec}
           mode={mode}
           operatorMode={operatorMode}
+          inventoryLoaded={inventoryManifest !== null}
+          isDemo={isDemo}
+          demoOffline={demoOffline}
+          onToggleDemoOffline={() => setDemoOffline((d) => !d)}
         />
 
         <div className="flex flex-1 min-h-0">
           <main className="flex-1 min-w-0 overflow-y-auto relative">
-            {mode === 'deploy' && (
+
+            {/* Command center — post-mode landing screen */}
+            {showCommandCenter && mode === 'deploy' && (
+              <CommandCenter
+                sessionMode={appSession}
+                vessel={vessel}
+                inventoryManifest={inventoryManifest}
+                compiledProtocols={compiledScenarios.length}
+                isOnline={navigator.onLine}
+                demoOffline={demoOffline}
+                onGoToAudit={() => setShowCommandCenter(false)}
+                onEmergency={triggerIncidentNow}
+              />
+            )}
+
+            {!showCommandCenter && mode === 'deploy' && (
               <DeployMode
                 key={inventoryPreset}
                 vessel={vessel}
                 inventory={inventory}
                 preset={inventoryPreset}
+                sessionMode={appSession}
                 onPresetChange={handleSelectPreset}
                 compiledScenarios={compiledScenarios}
                 onCompiled={(scenarios, source) => {
@@ -276,8 +336,12 @@ export default function App() {
                 }}
                 onTriggerIncident={handleTriggerIncident}
                 addAuditEntry={addAuditEntry}
+                inventoryManifest={inventoryManifest}
+                onManifestImported={handleManifestImported}
+                onBackToCommand={() => setShowCommandCenter(true)}
               />
             )}
+
             {mode === 'incident' && (
               <IncidentMode
                 key={`${caseId}_${incidentRequestRef.current}`}
@@ -289,6 +353,7 @@ export default function App() {
                 onConfirm={handleConfirmCase}
                 fastForwardKey={fastForwardKey}
                 oneHanded={env.oneHanded}
+                inventoryManifest={inventoryManifest}
               />
             )}
             {mode === 'handoff' && currentCase && (
@@ -305,30 +370,38 @@ export default function App() {
           </main>
 
           {!operatorMode && (
-          <aside className="w-72 shrink-0 border-l border-rig-dim/20 bg-rig-panel flex flex-col">
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <ArchitecturePanel
-                counters={architecture}
-                scenarios={compiledScenarios}
-                casesThisVoyage={resolvedCases.length}
-                preset={inventoryPreset}
-              />
-            </div>
-            <div className="shrink-0">
-              <EnvironmentControls envApi={envApi} muted={sound.muted} onToggleMute={sound.toggleMute} />
-            </div>
-          </aside>
+            <aside className="w-72 shrink-0 border-l border-rig-dim/20 bg-rig-panel flex flex-col">
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                <ArchitecturePanel
+                  counters={architecture}
+                  scenarios={compiledScenarios}
+                  casesThisVoyage={resolvedCases.length}
+                  preset={inventoryPreset}
+                />
+              </div>
+              <div className="shrink-0">
+                <EnvironmentControls envApi={envApi} muted={sound.muted} onToggleMute={sound.toggleMute} />
+              </div>
+            </aside>
           )}
         </div>
       </div>
 
-      {/* Operator/Demo dashboard toggle — fixed corner button */}
+      {/* Operator/Demo dashboard toggle */}
       <button
         onClick={() => setOperatorMode((m) => !m)}
-        title={operatorMode ? 'Show YC demo dashboard (architecture panel, counters)' : 'Switch to operator view (hide demo chrome)'}
+        title={operatorMode ? 'Show demo dashboard' : 'Switch to operator view'}
         className="fixed bottom-3 right-3 z-30 px-3 py-2 text-[10px] uppercase tracking-widest font-bold rounded-md border border-rig-dim/40 bg-rig-bg/90 backdrop-blur hover:bg-rig-surface text-rig-text shadow-lg"
       >
         {operatorMode ? 'SHOW DEMO DASHBOARD' : 'OPERATOR VIEW'}
+      </button>
+
+      {/* Change mode button */}
+      <button
+        onClick={() => { setAppSession(null); setShowCommandCenter(false); setDemoOffline(false); }}
+        className="fixed bottom-3 left-3 z-30 px-3 py-2 text-[10px] uppercase tracking-widest rounded-md border border-rig-dim/30 bg-rig-bg/90 backdrop-blur hover:bg-rig-surface text-rig-dim hover:text-rig-text shadow-lg"
+      >
+        {isDemo ? '⬡ Training' : isOnboarding ? '⬡ Onboarding' : '⬡ Live'} · change
       </button>
 
       {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}
@@ -338,7 +411,7 @@ export default function App() {
 
 function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
   const items: Array<[string, string]> = [
-    ['1', 'Reset to Deploy'],
+    ['1', 'Reset to Command Center'],
     ['2', 'Trigger Incident'],
     ['3', 'Fast-forward to Handoff'],
     ['P', 'Toggle Offshore / Polar preset'],

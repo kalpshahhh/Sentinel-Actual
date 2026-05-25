@@ -2,7 +2,7 @@ export const PROTOCOL_COMPILATION_PROMPT = `You are the compile-time engine for 
 
 The output is read at runtime by a person with ZERO medical training. Use PLAIN ENGLISH throughout. Avoid jargon. "Kidney stone" not "renal colic". "Severe allergic reaction" not "anaphylaxis". "Severe one-sided back/side pain" not "flank pain". Drug names and doses stay as printed on the bottle.
 
-Output ONLY valid JSON. No prose, no preamble, no markdown fences. Be TERSE — short field values, no nested explanations. Maximum 8 scenarios.
+Output ONLY valid JSON. No prose, no preamble, no markdown fences. Be TERSE — short field values, no nested explanations. Maximum 15 scenarios — include ALL realistic emergencies for this environment and crew profile, not just the most common ones.
 
 Schema:
 {

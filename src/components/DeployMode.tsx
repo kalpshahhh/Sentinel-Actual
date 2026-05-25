@@ -15,6 +15,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { AuditEntry, Equipment, InventoryPreset, Scenario, Vessel } from '../types';
+import type { InventoryManifest } from '../types/inventory';
 import { callClaude } from '../lib/anthropic';
 import { PROTOCOL_COMPILATION_PROMPT } from '../lib/prompts';
 import { getFallbackScenarios } from '../data/protocols';
@@ -24,29 +25,39 @@ import { useBluetoothScanner } from '../hooks/useBluetoothScanner';
 import { useNfcReader } from '../hooks/useNfcReader';
 import { useDevice } from '../hooks/useDevice';
 import { WifiScanPanel } from './WifiScanPanel';
+import { InventoryImport } from './InventoryImport';
+import { CapabilityDashboard } from './CapabilityDashboard';
 
-type Stage = 'idle' | 'scanning' | 'scanned' | 'compiling' | 'compiled';
+type Stage = 'idle' | 'scanning' | 'scanned' | 'compiling' | 'compiled' | 'import_inventory' | 'capability';
 
 type Props = {
   vessel: Vessel;
   inventory: Equipment[];
   preset: InventoryPreset;
+  sessionMode: 'demo' | 'live' | 'onboarding';
   onPresetChange: (p: InventoryPreset) => void;
   compiledScenarios: Scenario[];
   onCompiled: (scenarios: Scenario[], source: 'llm' | 'fallback') => void;
   onTriggerIncident: () => void;
   addAuditEntry: (entry: Omit<AuditEntry, 'id' | 'timestamp'>) => void;
+  inventoryManifest: InventoryManifest | null;
+  onManifestImported: (manifest: InventoryManifest) => void;
+  onBackToCommand?: () => void;
 };
 
 export function DeployMode({
   vessel,
   inventory,
   preset,
+  sessionMode,
   onPresetChange,
   compiledScenarios,
   onCompiled,
   onTriggerIncident,
   addAuditEntry,
+  inventoryManifest,
+  onManifestImported,
+  onBackToCommand,
 }: Props) {
   const [stage, setStage] = useState<Stage>(compiledScenarios.length > 0 ? 'compiled' : 'idle');
   const [discoveredCount, setDiscoveredCount] = useState(0);
@@ -125,7 +136,7 @@ export function DeployMode({
         quantityOnboard: e.quantityOnboard,
       })),
       validCitationIds: VALID_CITATION_IDS,
-      maxScenarios: 8,
+      maxScenarios: 15,
     };
 
     try {
@@ -157,28 +168,31 @@ export function DeployMode({
   if (stage === 'idle') {
     return (
       <div className="p-8 max-w-5xl mx-auto">
-        <Header preset={preset} vessel={vessel} />
+        <div className="flex items-start justify-between gap-4">
+          <Header preset={preset} vessel={vessel} />
+          {onBackToCommand && (
+            <button
+              onClick={onBackToCommand}
+              className="text-xs uppercase tracking-widest text-rig-dim hover:text-rig-text border border-rig-dim/30 rounded px-3 py-1.5 hover:border-rig-dim/60 shrink-0"
+            >
+              ← Command Center
+            </button>
+          )}
+        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-          <div className="md:col-span-2 bg-rig-surface border border-rig-dim/20 rounded-md p-5">
+        <div className={`grid gap-4 mt-6 ${sessionMode === 'onboarding' ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1'}`}>
+          <div className={`bg-rig-surface border border-rig-dim/20 rounded-md p-5 ${sessionMode === 'onboarding' ? 'md:col-span-2' : ''}`}>
             <div className="text-[10px] uppercase tracking-widest text-rig-dim mb-2">Vessel Profile</div>
             <div className="font-bold text-lg tracking-wider">{vessel.name}</div>
             <div className="text-sm text-rig-dim mt-1">
               {vessel.type} · Flag {vessel.flag} · Crew {vessel.crew} · ETA shore {vessel.etaToShoreHours}h
             </div>
             <div className="text-xs text-rig-dim mt-1">Weather: {vessel.weatherCondition}</div>
-
-            <div className="mt-4 text-[10px] uppercase tracking-widest text-rig-dim">What happens next</div>
-            <div className="text-sm text-rig-text leading-relaxed">
-              Sentinel uses your one-time satellite link at install to (1) auto-discover every medical device onboard
-              over Bluetooth and the wired bus, and (2) read the signed RFID manifest in the medical chest to
-              catalogue every drug, dose, and location. The AI then pre-compiles every possible emergency, symptom path,
-              and treatment plan into a static graph stored locally. After that, you don't need internet ever again —
-              all guidance runs from the on-device graph.
-            </div>
           </div>
 
-          <PresetSelector preset={preset} onPresetChange={onPresetChange} />
+          {sessionMode === 'onboarding' && (
+            <PresetSelector preset={preset} onPresetChange={onPresetChange} />
+          )}
         </div>
 
         <div className="mt-8 flex flex-col items-center gap-3">
@@ -187,17 +201,6 @@ export function DeployMode({
             className="px-8 py-4 bg-rig-accent text-rig-bg font-bold uppercase tracking-widest rounded glow-accent hover:bg-rig-accent/85 flex items-center gap-3 text-base"
           >
             <Bluetooth size={18} /> Run Equipment Audit
-          </button>
-          <button
-            onClick={() => {
-              const fb = getFallbackScenarios(preset);
-              onCompiled(fb, 'fallback');
-              setStage('compiled');
-              setTimeout(() => onTriggerIncident(), 80);
-            }}
-            className="text-[11px] uppercase tracking-widest text-rig-dim hover:text-rig-accent underline underline-offset-4"
-          >
-            DEMO — skip install, jump to incident flow
           </button>
         </div>
       </div>
@@ -359,6 +362,49 @@ export function DeployMode({
     );
   }
 
+  if (stage === 'import_inventory') {
+    return (
+      <InventoryImport
+        preset={preset}
+        vesselName={vessel.name}
+        currentManifest={inventoryManifest}
+        onCancel={() => setStage(compiledScenarios.length > 0 ? 'compiled' : 'idle')}
+        onImported={(manifest) => {
+          onManifestImported(manifest);
+          addAuditEntry({
+            mode: 'deploy',
+            type: 'input',
+            description: `Inventory imported — ${manifest.medications.length} medications, ${manifest.devices.length} devices (source: ${manifest.importSource})`,
+            data: { source: manifest.importSource, medications: manifest.medications.length },
+          });
+          setStage('capability');
+        }}
+      />
+    );
+  }
+
+  if (stage === 'capability' && inventoryManifest) {
+    return (
+      <div className="p-6">
+        <CapabilityDashboard manifest={inventoryManifest} lastSyncLabel="Last sync: just now" />
+        <div className="mt-6 max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-3">
+          <button
+            onClick={onTriggerIncident}
+            className="px-5 py-4 bg-rig-accent text-rig-bg font-bold uppercase tracking-widest rounded glow-accent hover:bg-rig-accent/85 flex items-center justify-center gap-2"
+          >
+            Simulate Incident →
+          </button>
+          <button
+            onClick={() => setStage('compiled')}
+            className="px-5 py-4 border border-rig-dim/40 text-rig-dim rounded hover:bg-rig-surface text-xs uppercase tracking-widest"
+          >
+            View decision graph
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // stage === 'compiled'
   return (
     <div className="p-6 flex flex-col items-center">
@@ -391,12 +437,22 @@ export function DeployMode({
               </div>
             </div>
           </div>
-          <button
-            onClick={onTriggerIncident}
-            className="px-5 py-4 bg-rig-accent text-rig-bg font-bold uppercase tracking-widest rounded glow-accent hover:bg-rig-accent/85 flex items-center justify-center gap-2"
-          >
-            Simulate Incident (Flank Pain) →
-          </button>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setStage('import_inventory')}
+              className="px-5 py-3 border border-rig-accent/40 text-rig-accent rounded hover:bg-rig-accent/10 text-xs uppercase tracking-widest"
+            >
+              Import inventory
+            </button>
+            {onBackToCommand && (
+              <button
+                onClick={onBackToCommand}
+                className="px-5 py-3 border border-rig-dim/30 text-rig-dim rounded hover:bg-rig-surface text-xs uppercase tracking-widest"
+              >
+                ← Command Center
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import {
@@ -11,21 +11,27 @@ import {
   X,
   ChevronDown,
   Image as ImageIcon,
+  ShieldAlert,
 } from 'lucide-react';
 import type { Scenario } from '../types';
+import type { InventoryManifest } from '../types/inventory';
 import { CitationChip, CitationProvider } from './CitationChip';
 import { findDrugLocation } from '../data/equipment-lookup';
 import { enrichStep } from '../data/protocols';
 import { InjectionDiagram } from './InjectionDiagram';
+import { TREATMENT_SUBSTITUTIONS } from '../data/treatmentSubstitutions';
+import { isDrugAvailable, getMedicationSubstitutes } from '../lib/inventory/engine';
 
 type Props = {
   scenario: Scenario;
   onCitationLookup: (id: string) => void;
   onBack: () => void;
   onComplete: () => void;
+  /** When provided, steps are checked against live inventory and warnings/substitutions shown. */
+  manifest?: InventoryManifest | null;
 };
 
-export function TreatmentSteps({ scenario, onCitationLookup, onBack, onComplete }: Props) {
+export function TreatmentSteps({ scenario, onCitationLookup, onBack, onComplete, manifest }: Props) {
   const steps = scenario.treatment.map((t) => enrichStep(t, scenario.condition));
   const [idx, setIdx] = useState(0);
   const [done, setDone] = useState<Record<string, boolean>>({});
@@ -40,6 +46,29 @@ export function TreatmentSteps({ scenario, onCitationLookup, onBack, onComplete 
   const completed = Object.values(done).filter(Boolean).length;
   const drugInfo = step?.drug ? findDrugLocation(step.drug) : null;
 
+  // Inventory adaptation — deterministic, zero cloud calls
+  const substitutionInfo = useMemo(() => {
+    if (!manifest || !step?.drug) return null;
+    const drugAvailable = isDrugAvailable(manifest, step.drug);
+    if (drugAvailable) return null;
+
+    const rule = TREATMENT_SUBSTITUTIONS.find((r) =>
+      step.drug!.toLowerCase().includes(r.originalDrugPattern.toLowerCase())
+    );
+    if (!rule) return { available: false, alternatives: [], criticalWarning: undefined, substitutes: [] };
+
+    const substitutes = rule.substituteGroup
+      ? getMedicationSubstitutes(manifest, rule.substituteGroup)
+      : [];
+
+    return {
+      available: false,
+      alternatives: rule.alternatives,
+      criticalWarning: rule.criticalWarning,
+      substitutes,
+    };
+  }, [manifest, step?.drug]);
+
   // Reset per-step UI when stepping
   const goTo = (i: number) => {
     setIdx(Math.max(0, Math.min(total - 1, i)));
@@ -48,7 +77,17 @@ export function TreatmentSteps({ scenario, onCitationLookup, onBack, onComplete 
     setShowDiagram(false);
   };
 
-  const markDone = () => setDone((d) => ({ ...d, [step.id]: !d[step.id] }));
+  const markDone = () => {
+    const wasAlreadyDone = !!done[step.id];
+    setDone((d) => ({ ...d, [step.id]: !wasAlreadyDone }));
+    // Auto-advance when marking done (not when unchecking)
+    if (!wasAlreadyDone) {
+      setTimeout(() => {
+        if (idx + 1 < total) goTo(idx + 1);
+        else onComplete();
+      }, 650);
+    }
+  };
   const next = () => {
     if (idx + 1 < total) goTo(idx + 1);
     else onComplete();
@@ -90,17 +129,28 @@ export function TreatmentSteps({ scenario, onCitationLookup, onBack, onComplete 
 
             {/* Drug card */}
             {(step.drug || step.dose || step.route || step.frequency) && (
-              <div className="mt-4 bg-rig-bg/40 border border-rig-accent/30 rounded p-3">
-                <div className="text-[10px] uppercase tracking-widest text-rig-accent mb-1 flex items-center gap-1.5">
-                  <Pill size={11} /> Use exactly this
+              <div className={clsx(
+                'mt-4 border rounded p-3',
+                substitutionInfo
+                  ? 'bg-rig-critical/10 border-rig-critical/40'
+                  : 'bg-rig-bg/40 border-rig-accent/30'
+              )}>
+                <div className={clsx(
+                  'text-[10px] uppercase tracking-widest mb-1 flex items-center gap-1.5',
+                  substitutionInfo ? 'text-rig-critical' : 'text-rig-accent'
+                )}>
+                  {substitutionInfo ? <ShieldAlert size={11} /> : <Pill size={11} />}
+                  {substitutionInfo ? 'Drug not in inventory — see alternatives below' : 'Use exactly this'}
                 </div>
-                <div className="text-base text-rig-text">
+                <div className={clsx('text-base', substitutionInfo ? 'text-rig-dim line-through' : 'text-rig-text')}>
                   {step.drug && <span className="font-bold">{step.drug}</span>}
-                  {step.dose && <> · <span className="text-rig-accent font-mono">{step.dose}</span></>}
+                  {step.dose && <> · <span className="font-mono">{step.dose}</span></>}
                   {step.route && <> · {step.route}</>}
                 </div>
-                {step.frequency && <div className="text-sm text-rig-dim mt-1">When: {step.frequency}</div>}
-                {drugInfo && (
+                {step.frequency && !substitutionInfo && (
+                  <div className="text-sm text-rig-dim mt-1">When: {step.frequency}</div>
+                )}
+                {drugInfo && !substitutionInfo && (
                   <div className="text-[12px] text-rig-ok mt-2 flex flex-wrap items-center gap-1.5">
                     <CheckCircle size={11} />
                     Find it at <span className="font-mono">{drugInfo.location}</span>
@@ -111,6 +161,32 @@ export function TreatmentSteps({ scenario, onCitationLookup, onBack, onComplete 
                     )}
                     {drugInfo.quantityOnboard !== undefined && (
                       <span className="text-rig-dim">· {drugInfo.quantityOnboard} in stock</span>
+                    )}
+                  </div>
+                )}
+
+                {/* Inventory-adapted substitutions — deterministic, no LLM */}
+                {substitutionInfo && (
+                  <div className="mt-3 space-y-2">
+                    {substitutionInfo.criticalWarning && (
+                      <div className="flex items-start gap-1.5 p-2 bg-rig-critical/20 border border-rig-critical/40 rounded text-[11px] text-rig-critical">
+                        <AlertTriangle size={10} className="mt-0.5 shrink-0" />
+                        {substitutionInfo.criticalWarning}
+                      </div>
+                    )}
+                    {substitutionInfo.alternatives.map((alt, i) => (
+                      <div key={i} className="bg-rig-bg/60 border border-rig-dim/30 rounded p-2.5">
+                        <div className="text-[10px] uppercase tracking-widest text-rig-accent mb-1">
+                          Alternative {substitutionInfo.alternatives.length > 1 ? i + 1 : ''}
+                        </div>
+                        <div className="text-sm text-rig-text">{alt.action}</div>
+                        <div className="text-[10px] text-rig-dim mt-1 italic">{alt.note}</div>
+                      </div>
+                    ))}
+                    {substitutionInfo.substitutes.length > 0 && (
+                      <div className="text-[10px] text-rig-dim font-mono">
+                        In inventory: {substitutionInfo.substitutes.map((m) => m.genericName).join(', ')}
+                      </div>
                     )}
                   </div>
                 )}

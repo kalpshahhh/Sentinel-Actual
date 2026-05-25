@@ -11,6 +11,7 @@ import {
   FileText,
 } from 'lucide-react';
 import type { AuditEntry, BodyRegion, Case, OneHandedMode, Scenario, Vessel, Vitals } from '../types';
+import type { InventoryManifest } from '../types/inventory';
 import { buildQuestionPool, rankFromAnswers, type Answer, type QuestionEntry } from '../data/protocols';
 import { InteractiveBody } from './InteractiveBody';
 import { CompareConditions } from './CompareConditions';
@@ -29,6 +30,7 @@ type Props = {
   onConfirm: (kase: Case) => void;
   fastForwardKey: number;
   oneHanded: OneHandedMode;
+  inventoryManifest?: InventoryManifest | null;
 };
 
 type Stage = 'body' | 'questions' | 'compare' | 'ultrasound' | 'result' | 'steps' | 'when_help' | 'wait_plan';
@@ -41,6 +43,7 @@ export function IncidentMode({
   onConfirm,
   fastForwardKey,
   oneHanded,
+  inventoryManifest,
 }: Props) {
   const [stage, setStage] = useState<Stage>('body');
   const [regions, setRegions] = useState<BodyRegion[]>([]);
@@ -281,10 +284,10 @@ export function IncidentMode({
           {stage === 'body' && (
             <StageContainer key="body">
               <h1 className="text-3xl sm:text-4xl font-bold tracking-wider text-rig-text mb-2 text-center">
-                Where does it hurt?
+                Where is the problem?
               </h1>
               <p className="text-rig-dim text-center mb-4 text-sm">
-                Tap every spot that hurts. You can tap more than one. Flip to the back or zoom in for close-up.
+                Tap the area where you think the problem is. Multiple areas are fine. Use the back view or close-up if needed.
               </p>
               <div className="flex justify-center">
                 <div className="w-full max-w-sm">
@@ -377,6 +380,7 @@ export function IncidentMode({
             <StageContainer key="steps">
               <TreatmentSteps
                 scenario={topScenario}
+                manifest={inventoryManifest}
                 onCitationLookup={onCitationLookup}
                 onBack={() => setStage('result')}
                 onComplete={() => {

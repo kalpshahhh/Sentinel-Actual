@@ -51,27 +51,67 @@ const BODY = 'fill-[#1f2937] stroke-[#6b7280]';
 function DeltoidDiagram() {
   return (
     <div className={FRAME}>
-      <svg viewBox="0 0 220 200" className="w-full">
-        {/* shoulder + upper arm cross-section */}
-        <path d="M 50 30 Q 110 10 170 30 L 170 180 Q 110 195 50 180 Z" className={BODY} strokeWidth="1.2" />
-        {/* deltoid muscle highlight */}
-        <ellipse cx="110" cy="70" rx="40" ry="22" fill="#fb923c" fillOpacity="0.18" stroke="#fb923c" strokeWidth="1" strokeDasharray="3 2" />
-        {/* injection spot */}
-        <circle cx="110" cy="70" r="4" fill="#fb923c">
-          <animate attributeName="r" values="3;6;3" dur="1.4s" repeatCount="indefinite" />
+      {/* Extra top padding so acromion label never clips */}
+      <svg viewBox="0 0 260 250" className="w-full">
+        {/* ── Body outline: neck + shoulder + upper arm (side view) ── */}
+        {/* neck */}
+        <path d="M 100 20 Q 105 15 120 14 Q 135 15 140 20 L 140 50 Q 120 55 100 50 Z"
+          fill="#2d3748" stroke="#6b7280" strokeWidth="1" />
+        {/* trapezius / top of shoulder slope */}
+        <path d="M 100 42 Q 80 50 60 75 Q 50 90 52 105 Q 54 115 65 118 L 195 118 Q 205 115 205 105
+                 Q 205 85 195 72 Q 178 50 155 43 Q 140 38 120 37 Q 110 37 100 42 Z"
+          fill="#374151" stroke="#6b7280" strokeWidth="1.2" />
+        {/* upper arm */}
+        <rect x="78" y="118" width="84" height="115" rx="12"
+          fill="#2d3748" stroke="#6b7280" strokeWidth="1.2" />
+
+        {/* ── Acromion bone (bony tip at very top of shoulder) ── */}
+        <ellipse cx="130" cy="52" rx="28" ry="9" fill="#4b5563" stroke="#9ca3af" strokeWidth="1" />
+        <text x="162" y="48" fill="#9ca3af" fontSize="9" fontFamily="ui-monospace">acromion</text>
+        <line x1="158" y1="50" x2="148" y2="53" stroke="#9ca3af" strokeWidth="0.8" />
+
+        {/* ── Avoid zone: top 1/3 of upper arm (too close to acromion) ── */}
+        <rect x="80" y="118" width="80" height="36" rx="4"
+          fill="#ef4444" fillOpacity="0.13" stroke="#ef4444" strokeWidth="1" strokeDasharray="3 2" />
+        <text x="166" y="132" fill="#ef4444" fontSize="8" fontFamily="ui-monospace">✕ too high</text>
+        <text x="166" y="143" fill="#ef4444" fontSize="8" fontFamily="ui-monospace">(nerve risk)</text>
+
+        {/* ── 3-finger-widths landmark ── */}
+        {/* Three fingers stacked */}
+        <rect x="54" y="123" width="22" height="8" rx="3" fill="#fb923c" fillOpacity="0.5" stroke="#fb923c" strokeWidth="0.7" />
+        <rect x="54" y="133" width="22" height="8" rx="3" fill="#fb923c" fillOpacity="0.5" stroke="#fb923c" strokeWidth="0.7" />
+        <rect x="54" y="143" width="22" height="8" rx="3" fill="#fb923c" fillOpacity="0.5" stroke="#fb923c" strokeWidth="0.7" />
+        <text x="36" y="118" fill="#fb923c" fontSize="8" fontFamily="ui-monospace">3</text>
+        <text x="32" y="128" fill="#fb923c" fontSize="8" fontFamily="ui-monospace">fin-</text>
+        <text x="32" y="138" fill="#fb923c" fontSize="8" fontFamily="ui-monospace">gers</text>
+        <line x1="76" y1="137" x2="80" y2="154" stroke="#fb923c" strokeWidth="0.8" strokeDasharray="2 2" />
+
+        {/* ── Deltoid muscle zone (good injection site) ── */}
+        <rect x="80" y="154" width="80" height="50" rx="4"
+          fill="#fb923c" fillOpacity="0.18" stroke="#fb923c" strokeWidth="1.2" strokeDasharray="4 2" />
+        <text x="166" y="172" fill="#fb923c" fontSize="9" fontFamily="ui-monospace">deltoid</text>
+        <text x="166" y="183" fill="#fb923c" fontSize="9" fontFamily="ui-monospace">muscle</text>
+        <text x="166" y="194" fill="#10b981" fontSize="8" fontFamily="ui-monospace">✓ inject here</text>
+        <line x1="162" y1="180" x2="152" y2="180" stroke="#fb923c" strokeWidth="0.8" />
+
+        {/* ── Injection site dot ── */}
+        <circle cx="120" cy="179" r="5" fill="#fb923c">
+          <animate attributeName="r" values="4;7;4" dur="1.4s" repeatCount="indefinite" />
         </circle>
-        {/* needle at 90 degrees */}
-        <line x1="110" y1="20" x2="110" y2="70" stroke="#22d3ee" strokeWidth="2" />
-        <polygon points="110,68 106,75 114,75" fill="#22d3ee" />
-        <text x="120" y="35" className={LABEL} fontSize="10">90°</text>
-        <text x="155" y="75" className={LABEL} fontSize="10">deltoid</text>
-        <line x1="150" y1="73" x2="135" y2="68" stroke="#fb923c" strokeWidth="0.8" />
-        {/* avoid zone (acromion) */}
-        <rect x="80" y="20" width="60" height="14" fill="#ef4444" fillOpacity="0.15" stroke="#ef4444" strokeDasharray="2 2" />
-        <text x="82" y="18" fill="#ef4444" fontSize="8" fontFamily="ui-monospace">stay 3 finger-widths below the top of the shoulder</text>
+
+        {/* ── Needle ── */}
+        <line x1="120" y1="120" x2="120" y2="178" stroke="#22d3ee" strokeWidth="2.5" />
+        <polygon points="120,177 115,165 125,165" fill="#22d3ee" />
+        <text x="126" y="140" fill="#22d3ee" fontSize="9" fontFamily="ui-monospace">90°</text>
+
+        {/* ── Muscle layer label ── */}
+        <text x="82" y="215" fill="#6b7280" fontSize="8" fontFamily="ui-monospace">skin → fat → muscle (aim for muscle)</text>
+        {/* skin line */}
+        <line x1="80" y1="154" x2="160" y2="154" stroke="#fbbf24" strokeWidth="0.6" strokeDasharray="2 1" />
+        <text x="163" y="157" fill="#fbbf24" fontSize="7" fontFamily="ui-monospace">skin</text>
       </svg>
       <p className={CAP}>
-        Find the bony bump at the very top of the shoulder. Go 3 finger-widths down from it. That square is the deltoid muscle. Push the needle in at a right angle (90°), all the way to the hub.
+        Feel for the bony point at the very top of the shoulder (acromion). Go 3 finger-widths straight down — the flat padded muscle under your fingers is the deltoid. Inject here at exactly 90°, full needle depth. Never inject in the top third (too close to the bone and nerves).
       </p>
     </div>
   );
@@ -81,28 +121,60 @@ function DeltoidDiagram() {
 function ThighDiagram() {
   return (
     <div className={FRAME}>
-      <svg viewBox="0 0 220 220" className="w-full">
-        {/* thigh from the side */}
-        <rect x="60" y="20" width="100" height="180" rx="20" className={BODY} strokeWidth="1.2" />
-        {/* outer thigh strip (vastus lateralis) */}
-        <rect x="62" y="40" width="20" height="140" fill="#fb923c" fillOpacity="0.18" stroke="#fb923c" strokeWidth="1" strokeDasharray="3 2" />
-        {/* hip and knee markers */}
-        <line x1="50" y1="30" x2="170" y2="30" stroke="#9ca3af" strokeWidth="0.5" strokeDasharray="2 2" />
-        <text x="172" y="33" fill="#9ca3af" fontSize="8" fontFamily="ui-monospace">hip</text>
-        <line x1="50" y1="190" x2="170" y2="190" stroke="#9ca3af" strokeWidth="0.5" strokeDasharray="2 2" />
-        <text x="172" y="193" fill="#9ca3af" fontSize="8" fontFamily="ui-monospace">knee</text>
-        {/* injection spot — middle third, outer thigh */}
-        <circle cx="72" cy="110" r="5" fill="#fb923c">
-          <animate attributeName="r" values="4;8;4" dur="1.4s" repeatCount="indefinite" />
+      <svg viewBox="0 0 280 240" className="w-full">
+        {/* ── Cross-section label ── */}
+        <text x="10" y="18" fill="#9ca3af" fontSize="9" fontFamily="ui-monospace">Cross-section view (looking down the thigh)</text>
+
+        {/* ── Skin + fat + muscle cross-section at mid-thigh ── */}
+        {/* overall thigh outline */}
+        <ellipse cx="130" cy="130" rx="95" ry="90" fill="#374151" stroke="#6b7280" strokeWidth="1.5" />
+
+        {/* ── Bones: femur in centre ── */}
+        <circle cx="130" cy="130" r="20" fill="#4b5563" stroke="#9ca3af" strokeWidth="1.5" />
+        <circle cx="130" cy="130" r="11" fill="#6b7280" />
+        <text x="117" y="134" fill="#e5e7eb" fontSize="8" fontFamily="ui-monospace">femur</text>
+
+        {/* ── Muscle groups ── */}
+        {/* Front quads */}
+        <path d="M 82 80 Q 130 55 178 80 Q 160 110 130 115 Q 100 110 82 80 Z"
+          fill="#1e3a5f" stroke="#3b82f6" strokeWidth="0.8" fillOpacity="0.6" />
+        <text x="112" y="90" fill="#3b82f6" fontSize="8" fontFamily="ui-monospace">quads</text>
+
+        {/* Inner thigh (medial — avoid: femoral artery/nerve) */}
+        <path d="M 60 110 Q 45 130 55 155 Q 80 165 110 155 Q 112 135 110 115 Q 85 108 60 110 Z"
+          fill="#3b1a1a" stroke="#ef4444" strokeWidth="0.8" fillOpacity="0.6" />
+        <text x="48" y="140" fill="#ef4444" fontSize="7" fontFamily="ui-monospace">✕ inner</text>
+        <text x="48" y="150" fill="#ef4444" fontSize="7" fontFamily="ui-monospace">artery</text>
+
+        {/* Outer thigh — vastus lateralis (SAFE ZONE) */}
+        <path d="M 185 105 Q 218 120 220 150 Q 215 175 195 185 Q 165 175 155 155 Q 155 125 165 110 Z"
+          fill="#14532d" stroke="#22c55e" strokeWidth="1.5" fillOpacity="0.7" />
+        <text x="225" y="135" fill="#22c55e" fontSize="9" fontFamily="ui-monospace">OUTER</text>
+        <text x="225" y="147" fill="#22c55e" fontSize="9" fontFamily="ui-monospace">THIGH</text>
+        <text x="225" y="159" fill="#10b981" fontSize="8" fontFamily="ui-monospace">✓ safe</text>
+
+        {/* Back hamstrings */}
+        <path d="M 88 175 Q 130 195 172 175 Q 170 155 130 148 Q 90 155 88 175 Z"
+          fill="#1f2937" stroke="#6b7280" strokeWidth="0.8" fillOpacity="0.6" />
+        <text x="112" y="183" fill="#6b7280" fontSize="8" fontFamily="ui-monospace">hamstrings</text>
+
+        {/* ── Injection target ── */}
+        <circle cx="193" cy="148" r="6" fill="#fb923c">
+          <animate attributeName="r" values="5;9;5" dur="1.4s" repeatCount="indefinite" />
         </circle>
-        {/* needle */}
-        <line x1="20" y1="110" x2="72" y2="110" stroke="#22d3ee" strokeWidth="2" />
-        <polygon points="70,110 64,106 64,114" fill="#22d3ee" />
-        <text x="22" y="105" className={LABEL} fontSize="10">90°</text>
-        <text x="100" y="115" className={LABEL} fontSize="10">outer thigh — middle third</text>
+
+        {/* ── Needle from outside ── */}
+        <line x1="255" y1="148" x2="196" y2="148" stroke="#22d3ee" strokeWidth="2.5" />
+        <polygon points="197,148 207,143 207,153" fill="#22d3ee" />
+        <text x="252" y="170" fill="#22d3ee" fontSize="9" fontFamily="ui-monospace">needle →</text>
+        <text x="247" y="182" fill="#22d3ee" fontSize="9" fontFamily="ui-monospace">90° in</text>
+
+        {/* Skin ring */}
+        <ellipse cx="130" cy="130" rx="95" ry="90" fill="none" stroke="#fbbf24" strokeWidth="2" strokeDasharray="3 30" />
+        <text x="10" y="225" fill="#fbbf24" fontSize="8" fontFamily="ui-monospace">skin surface</text>
       </svg>
       <p className={CAP}>
-        Divide the outer side of the thigh into thirds (hip to knee). Aim for the middle third, on the outside (where you would put your hand if you put it on your hip and slid down). Needle in at 90°, all the way to the hub. Safest IM site — no big nerves or vessels.
+        Seat them with thigh relaxed. Face the outer side of the thigh — it's the part that faces outward when the leg is flat (not the front, not the back, not the inner leg). Divide hip-to-knee into thirds. Inject in the middle third of that outer surface. Needle goes in at 90°, full depth. The femoral artery runs on the inner side — never inject there.
       </p>
     </div>
   );
