@@ -5,7 +5,6 @@ import {
   Snowflake,
   Plus,
   ChevronRight,
-  CheckCircle2,
   Package,
   Pill,
   Cpu,

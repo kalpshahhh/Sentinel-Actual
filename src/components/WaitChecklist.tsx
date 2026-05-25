@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import { ArrowLeft, CheckCircle, Clock, Hourglass, AlertTriangle, Pill, ChevronRight } from 'lucide-react';
 import type { Scenario } from '../types';
-import { buildDoseSchedule, type DoseSchedule } from '../data/protocols';
+import { buildDoseSchedule } from '../data/protocols';
 import { findDrugLocation } from '../data/equipment-lookup';
 
 type Props = {
@@ -175,7 +175,7 @@ export function WaitChecklist({ scenario, helpInHours, startedAt, onFinish, onBa
         </div>
         <ol className="relative space-y-1.5 pl-6">
           <div className="absolute left-2 top-2 bottom-2 w-px bg-rig-dim/30" />
-          {events.map((ev, evIdx) => {
+          {events.map((ev) => {
             const isChecked = !!checked[ev.key];
             const isHero = ev.key === heroEvent?.key;
             const isPast = ev.time.getTime() < now.getTime() - 60_000;

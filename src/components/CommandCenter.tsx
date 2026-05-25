@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { MapPin, Battery, BatteryCharging, Wifi, WifiOff, Package, Siren, ClipboardList, FlaskConical, Wind, AlertTriangle, Compass, Plane, XCircle, Radio } from 'lucide-react';
+import { MapPin, Battery, BatteryCharging, Wifi, WifiOff, Package, Siren, ClipboardList, Wind, AlertTriangle, Compass, Plane, XCircle, Radio } from 'lucide-react';
 import clsx from 'clsx';
 import type { CapabilityProfile, Vessel } from '../types';
 import type { InventoryManifest } from '../types/inventory';

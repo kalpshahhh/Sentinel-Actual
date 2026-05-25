@@ -24,7 +24,6 @@ export function BarcodeScanner({ onFound, onClose }: Props) {
 
   const stopScanner = useCallback(() => {
     activeRef.current = false;
-    try { readerRef.current?.reset(); } catch { /* ignore */ }
     if (videoRef.current?.srcObject) {
       const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
       tracks.forEach((t) => { try { t.stop(); } catch { /* ignore */ } });

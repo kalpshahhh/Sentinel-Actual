@@ -8,7 +8,6 @@ import {
   Wind,
   Scissors,
   Zap,
-  Radio,
   Helicopter,
   AlertTriangle,
   CheckCircle,
@@ -277,9 +276,9 @@ const READINESS_LABEL: Record<ReadinessLevel, string> = {
 };
 
 function CapSection({
-  id, label, icon, readiness, expanded, onToggle, children,
+  label, icon, readiness, expanded, onToggle, children,
 }: {
-  id: string;
+  id?: string;
   label: string;
   icon: React.ReactNode;
   readiness: ReadinessLevel;

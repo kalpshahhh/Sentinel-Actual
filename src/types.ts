@@ -148,6 +148,7 @@ export type BodyRegion =
   | 'ankle_left'
   | 'foot_left'
   // Whole-body / system
+  | 'head'
   | 'skin_general'
   | 'breathing'
   | 'general';
@@ -193,7 +194,7 @@ export type Scenario = {
 
 export type CaseDecisionAction = 'treat_onboard' | 'helicopter_now' | 'helicopter_2h' | 'shore_24h';
 
-export type ScenarioCategory = 'cardiovascular' | 'trauma' | 'infection' | 'gu' | 'gi' | 'respiratory' | 'neuro' | 'other';
+export type ScenarioCategory = 'cardiovascular' | 'trauma' | 'infection' | 'gu' | 'gi' | 'respiratory' | 'neuro' | 'other' | 'endocrine' | 'neurological' | 'environmental';
 
 export type DifferentialItem = {
   condition: string;

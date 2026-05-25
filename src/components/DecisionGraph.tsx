@@ -18,6 +18,9 @@ const CATEGORY_COLOR: Record<ScenarioCategory, string> = {
   respiratory: '#22d3ee',
   neuro: '#ec4899',
   other: '#9ca3af',
+  endocrine: '#f0abfc',
+  neurological: '#c084fc',
+  environmental: '#34d399',
 };
 
 function categoryFor(s: Scenario): ScenarioCategory {
