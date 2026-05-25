@@ -63,7 +63,7 @@ export function useBattery(): BatteryState {
     });
     return () => {
       cancelled = true;
-      if (battery) {
+      if (battery && typeof battery.removeEventListener === 'function') {
         battery.removeEventListener('levelchange', update);
         battery.removeEventListener('chargingchange', update);
         battery.removeEventListener('chargingtimechange', update);
