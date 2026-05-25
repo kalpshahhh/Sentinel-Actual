@@ -23,9 +23,13 @@ import {
   Activity,
   Ship,
   Snowflake,
+  Plus,
+  X,
+  Cpu,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type { CapabilityProfile, InventoryPreset } from '../types';
+import type { VesselRecord } from '../lib/vessels';
 import { siteTypeLabel, regionLabel, commsLabel } from '../lib/capability';
 import { useGeolocation } from '../hooks/useGeolocation';
 import {
@@ -41,11 +45,13 @@ type Props = {
   profile: CapabilityProfile;
   /** demo = fake data; live = real GPS + real weather fetch. */
   dataSource: 'demo' | 'live';
-  selectedPreset: InventoryPreset;
+  vessels: VesselRecord[];
+  activeVesselId: string | null;
   /** Returns counts so the home page can show progress against each audit. */
   equipmentCount?: number;
   medicineCount?: number;
-  onPresetChange: (preset: InventoryPreset) => void;
+  onVesselSelect: (id: string) => void;
+  onVesselCreate: (name: string, preset: InventoryPreset) => void;
   onEditProfile: () => void;
   onStartAudit: (kind: OnboardingAuditKind) => void;
   onContinueToOperations: () => void;
@@ -56,14 +62,19 @@ const REFRESH_INTERVAL_MS = 5 * 60_000;
 export function OnboardingHome({
   profile,
   dataSource,
-  selectedPreset,
+  vessels,
+  activeVesselId,
   equipmentCount = 0,
   medicineCount = 0,
-  onPresetChange,
+  onVesselSelect,
+  onVesselCreate,
   onEditProfile,
   onStartAudit,
   onContinueToOperations,
 }: Props) {
+  const [showNewVessel, setShowNewVessel] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newPreset, setNewPreset] = useState<InventoryPreset>('offshore');
   const liveGeo = useGeolocation();
   const fakeCoords = fakeCoordsForRegion(profile.region);
   const lat = dataSource === 'live' ? liveGeo.lat : fakeCoords.lat;
@@ -175,28 +186,88 @@ export function OnboardingHome({
           className="mb-5"
         >
           <div className="text-[10px] uppercase tracking-widest text-rig-dim mb-2 flex items-center gap-1.5">
-            <Ship size={11} /> Select vessel
+            <Ship size={11} /> Vessel
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <VesselCard
-              active={selectedPreset === 'offshore'}
-              name="MV NORTHERN STAR"
-              type="Offshore Supply Vessel · North Sea"
-              flag="UK"
-              crew={12}
-              icon={<Ship size={20} />}
-              onClick={() => onPresetChange('offshore')}
-            />
-            <VesselCard
-              active={selectedPreset === 'polar'}
-              name="HALLEY VI"
-              type="Antarctic Research Station · Polar"
-              flag="British Antarctic Survey"
-              crew={16}
-              icon={<Snowflake size={20} />}
-              onClick={() => onPresetChange('polar')}
-            />
-          </div>
+
+          {vessels.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              {vessels.map((v) => {
+                const compiled = (v.compiledScenarios?.length ?? 0) > 0;
+                return (
+                  <VesselCard
+                    key={v.id}
+                    active={v.id === activeVesselId}
+                    name={v.name}
+                    type={`${v.preset === 'polar' ? 'Polar research' : 'Offshore supply'} · ${v.capabilityProfile?.region?.replace(/_/g, ' ') ?? 'region TBD'}`}
+                    compiled={compiled}
+                    icon={v.preset === 'polar' ? <Snowflake size={18} /> : <Ship size={18} />}
+                    onClick={() => onVesselSelect(v.id)}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {!showNewVessel ? (
+            <button
+              onClick={() => setShowNewVessel(true)}
+              className="w-full flex items-center gap-2 px-4 py-3 rounded-lg border border-dashed border-rig-dim/40 hover:border-rig-accent/50 text-rig-dim hover:text-rig-accent transition-colors text-sm"
+            >
+              <Plus size={15} /> Add new vessel
+            </button>
+          ) : (
+            <div className="bg-rig-surface/40 border border-rig-accent/30 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-xs uppercase tracking-widest text-rig-accent">New vessel</div>
+                <button onClick={() => { setShowNewVessel(false); setNewName(''); }} className="text-rig-dim hover:text-rig-text">
+                  <X size={14} />
+                </button>
+              </div>
+              <input
+                autoFocus
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Vessel name, e.g. MV Endeavour"
+                className="w-full bg-rig-bg border border-rig-dim/30 rounded p-2.5 text-sm text-rig-text placeholder:text-rig-dim focus:border-rig-accent focus:outline-none"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setNewPreset('offshore')}
+                  className={clsx(
+                    'flex items-center gap-2 px-3 py-2 rounded border text-xs transition-colors',
+                    newPreset === 'offshore'
+                      ? 'bg-rig-accent/15 border-rig-accent/50 text-rig-accent'
+                      : 'border-rig-dim/30 text-rig-dim hover:border-rig-dim/60'
+                  )}
+                >
+                  <Ship size={14} /> Offshore / Marine
+                </button>
+                <button
+                  onClick={() => setNewPreset('polar')}
+                  className={clsx(
+                    'flex items-center gap-2 px-3 py-2 rounded border text-xs transition-colors',
+                    newPreset === 'polar'
+                      ? 'bg-rig-accent/15 border-rig-accent/50 text-rig-accent'
+                      : 'border-rig-dim/30 text-rig-dim hover:border-rig-dim/60'
+                  )}
+                >
+                  <Snowflake size={14} /> Polar / Remote
+                </button>
+              </div>
+              <button
+                disabled={!newName.trim()}
+                onClick={() => {
+                  if (!newName.trim()) return;
+                  onVesselCreate(newName.trim(), newPreset);
+                  setShowNewVessel(false);
+                  setNewName('');
+                }}
+                className="w-full px-4 py-2 bg-rig-accent text-rig-bg rounded text-xs font-bold uppercase tracking-widest disabled:opacity-40 hover:bg-rig-accent/85"
+              >
+                Create vessel
+              </button>
+            </div>
+          )}
         </motion.section>
 
         {/* LOCATION CARD */}
@@ -468,16 +539,14 @@ function VesselCard({
   active,
   name,
   type,
-  flag,
-  crew,
+  compiled,
   icon,
   onClick,
 }: {
   active: boolean;
   name: string;
   type: string;
-  flag: string;
-  crew: number;
+  compiled?: boolean;
   icon: React.ReactNode;
   onClick: () => void;
 }) {
@@ -485,7 +554,7 @@ function VesselCard({
     <button
       onClick={onClick}
       className={clsx(
-        'w-full text-left p-4 rounded-lg border flex items-center gap-4 transition-all',
+        'w-full text-left p-4 rounded-lg border flex items-center gap-3 transition-all',
         active
           ? 'bg-rig-accent/15 border-rig-accent/60 shadow-[0_0_0_1px_rgb(var(--rig-accent)/0.3)]'
           : 'bg-rig-surface/40 border-rig-dim/30 hover:border-rig-dim/60'
@@ -494,8 +563,12 @@ function VesselCard({
       <span className={clsx('shrink-0', active ? 'text-rig-accent' : 'text-rig-dim')}>{icon}</span>
       <div className="flex-1 min-w-0">
         <div className={clsx('text-sm font-bold tracking-wide', active ? 'text-rig-accent' : 'text-rig-text')}>{name}</div>
-        <div className="text-xs text-rig-dim truncate">{type}</div>
-        <div className="text-[10px] text-rig-dim/70 mt-0.5">{flag} · {crew} crew</div>
+        <div className="text-xs text-rig-dim truncate capitalize">{type}</div>
+        {compiled && (
+          <div className="flex items-center gap-1 mt-0.5 text-[10px] text-rig-ok">
+            <Cpu size={9} /> Protocols ready
+          </div>
+        )}
       </div>
       {active && <CheckCircle2 size={16} className="text-rig-accent shrink-0" />}
     </button>

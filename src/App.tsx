@@ -15,7 +15,18 @@ import { getVesselForPreset } from './data/vessel';
 import { getInventoryForPreset } from './data/equipment';
 import { getFallbackScenarios } from './data/protocols';
 import { loadCapabilityProfile, saveCapabilityProfile, defaultProfileForPreset } from './lib/capability';
+import {
+  loadVessels,
+  saveVessel,
+  getOrInitVessel,
+  makeVesselId,
+  VESSEL_ID_OFFSHORE,
+  VESSEL_ID_POLAR,
+  type VesselRecord,
+} from './lib/vessels';
+import { compileProtocols } from './lib/compileProtocols';
 import { ModeSelector, type AppSessionMode } from './components/ModeSelector';
+import { VesselPicker } from './components/VesselPicker';
 import { CommandCenter } from './components/CommandCenter';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { OnboardingHome, type OnboardingAuditKind } from './components/OnboardingHome';
@@ -105,6 +116,14 @@ export default function App() {
   const [showWizard, setShowWizard] = useState(false);
   /** In onboarding mode, which screen of the hub is showing. */
   const [onboardingView, setOnboardingView] = useState<'home' | 'equipment-audit' | 'medicine-audit'>('home');
+  /** Vessel registry — persisted to localStorage. */
+  const [vessels, setVessels] = useState<VesselRecord[]>(() => loadVessels());
+  /** Which vessel is active in the current session. */
+  const [activeVesselId, setActiveVesselId] = useState<string | null>(null);
+  /** Show vessel picker before CommandCenter in demo/live. */
+  const [showVesselPicker, setShowVesselPicker] = useState(false);
+  /** Whether background protocol compilation is running. */
+  const [compilingInBackground, setCompilingInBackground] = useState(false);
 
   const isDemo = appSession === 'demo';
   const isOnboarding = appSession === 'onboarding';
@@ -114,6 +133,90 @@ export default function App() {
   useEffect(() => {
     loadManifest().then((m) => { if (m) setInventoryManifest(m); }).catch(() => {});
   }, []);
+
+  // Seed the registry with the two built-in vessels on first launch so they
+  // always appear in VesselPicker even before the operator runs onboarding.
+  useEffect(() => {
+    const existing = loadVessels();
+    const hasOffshore = existing.some((v) => v.id === VESSEL_ID_OFFSHORE);
+    const hasPolar = existing.some((v) => v.id === VESSEL_ID_POLAR);
+    if (!hasOffshore) saveVessel(getOrInitVessel('offshore', 'MV NORTHERN STAR'));
+    if (!hasPolar) saveVessel(getOrInitVessel('polar', 'HALLEY VI'));
+    setVessels(loadVessels());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Switch to a saved vessel: load its manifest + compiled protocols. */
+  const handleVesselSelect = (id: string) => {
+    const v = vessels.find((x) => x.id === id);
+    if (!v) return;
+    setActiveVesselId(id);
+    handleSelectPreset(v.preset);
+    if (v.capabilityProfile) {
+      setCapabilityProfile(v.capabilityProfile);
+      saveCapabilityProfile(v.capabilityProfile);
+    }
+    if (v.manifest) {
+      setInventoryManifest(v.manifest);
+      void saveManifest(v.manifest);
+    }
+    if (v.compiledScenarios && v.compiledScenarios.length > 0) {
+      setCompiledScenarios(v.compiledScenarios);
+    }
+    setShowVesselPicker(false);
+    setShowCommandCenter(true);
+  };
+
+  /** Create a new custom vessel and make it active. */
+  const handleVesselCreate = (name: string, preset: InventoryPreset) => {
+    const now = new Date().toISOString();
+    const rec: VesselRecord = {
+      id: makeVesselId(),
+      name,
+      preset,
+      capabilityProfile: capabilityProfile,
+      manifest: null,
+      compiledScenarios: null,
+      compiledAt: null,
+      lastUpdated: now,
+      createdAt: now,
+    };
+    saveVessel(rec);
+    setVessels(loadVessels());
+    setActiveVesselId(rec.id);
+    handleSelectPreset(preset);
+  };
+
+  /** Persist a manifest to the active vessel record + trigger background compile. */
+  const handleSaveVesselManifest = (manifest: InventoryManifest) => {
+    setInventoryManifest(manifest);
+    void saveManifest(manifest);
+    if (!activeVesselId) return;
+    const now = new Date().toISOString();
+    const v = vessels.find((x) => x.id === activeVesselId);
+    if (!v) return;
+    const updated: VesselRecord = { ...v, manifest, lastUpdated: now };
+    saveVessel(updated);
+    setVessels(loadVessels());
+
+    // Background protocol compilation — fires and forgets; result stored in registry
+    if (!compilingInBackground) {
+      setCompilingInBackground(true);
+      void compileProtocols(vessel, inventory, capabilityProfile, v.preset)
+        .then((result) => {
+          setCompiledScenarios(result.scenarios);
+          const withProtocols: VesselRecord = {
+            ...updated,
+            compiledScenarios: result.scenarios,
+            compiledAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+          };
+          saveVessel(withProtocols);
+          setVessels(loadVessels());
+        })
+        .finally(() => setCompilingInBackground(false));
+    }
+  };
 
   const vessel = useMemo(() => getVesselForPreset(inventoryPreset), [inventoryPreset]);
   const inventory = useMemo(() => getInventoryForPreset(inventoryPreset), [inventoryPreset]);
@@ -289,24 +392,41 @@ export default function App() {
       <ModeSelector
         onSelect={(m) => {
           setAppSession(m);
-          // Onboarding mode forces wizard first. Demo/live use a default
-          // capability profile if none saved yet, but offer reconfigure later.
+          setMode('deploy');
           if (m === 'onboarding') {
-            // Onboarding mode: if no profile, wizard first; otherwise land on
-            // the OnboardingHome hub. We never auto-jump to CommandCenter here.
-            if (!capabilityProfile) {
-              setShowWizard(true);
-            }
+            if (!capabilityProfile) setShowWizard(true);
             setShowCommandCenter(false);
           } else {
-            if (!capabilityProfile) {
-              const def = defaultProfileForPreset(inventoryPreset);
-              setCapabilityProfile(def);
-              saveCapabilityProfile(def);
+            // Demo/live: show vessel picker if any saved; otherwise seed defaults
+            if (vessels.length > 0) {
+              setShowVesselPicker(true);
+              setShowCommandCenter(false);
+            } else {
+              if (!capabilityProfile) {
+                const def = defaultProfileForPreset(inventoryPreset);
+                setCapabilityProfile(def);
+                saveCapabilityProfile(def);
+              }
+              setShowCommandCenter(true);
             }
-            setShowCommandCenter(true);
           }
-          setMode('deploy');
+        }}
+      />
+    );
+  }
+
+  // Vessel picker — shown after mode select in demo/live when vessels exist
+  if (showVesselPicker && appSession !== 'onboarding') {
+    return (
+      <VesselPicker
+        vessels={vessels}
+        sessionMode={appSession!}
+        onSelect={(v) => handleVesselSelect(v.id)}
+        onGoToOnboarding={() => {
+          setShowVesselPicker(false);
+          setAppSession('onboarding');
+          if (!capabilityProfile) setShowWizard(true);
+          setShowCommandCenter(false);
         }}
       />
     );
@@ -346,17 +466,27 @@ export default function App() {
       <OnboardingHome
         profile={capabilityProfile}
         dataSource="live"
-        selectedPreset={inventoryPreset}
+        vessels={vessels}
+        activeVesselId={activeVesselId}
         equipmentCount={inventoryManifest?.devices.length ?? 0}
         medicineCount={inventoryManifest?.medications.length ?? 0}
-        onPresetChange={(preset) => {
-          handleSelectPreset(preset);
-        }}
+        onVesselSelect={handleVesselSelect}
+        onVesselCreate={handleVesselCreate}
         onEditProfile={() => setShowWizard(true)}
         onStartAudit={(kind: OnboardingAuditKind) => {
           setOnboardingView(kind === 'equipment' ? 'equipment-audit' : 'medicine-audit');
         }}
-        onContinueToOperations={() => setShowCommandCenter(true)}
+        onContinueToOperations={() => {
+          // Update the active vessel's capabilityProfile before continuing
+          if (activeVesselId) {
+            const v = vessels.find((x) => x.id === activeVesselId);
+            if (v && capabilityProfile) {
+              saveVessel({ ...v, capabilityProfile, lastUpdated: new Date().toISOString() });
+              setVessels(loadVessels());
+            }
+          }
+          setShowCommandCenter(true);
+        }}
       />
     );
   }
@@ -368,8 +498,7 @@ export default function App() {
         vesselName={vessel.name}
         currentManifest={inventoryManifest}
         onSaved={(manifest) => {
-          setInventoryManifest(manifest);
-          void saveManifest(manifest);
+          handleSaveVesselManifest(manifest);
           addAuditEntry({
             mode: 'deploy',
             type: 'input',
@@ -391,8 +520,7 @@ export default function App() {
         vesselName={vessel.name}
         currentManifest={inventoryManifest}
         onSaved={(manifest) => {
-          setInventoryManifest(manifest);
-          void saveManifest(manifest);
+          handleSaveVesselManifest(manifest);
           addAuditEntry({
             mode: 'deploy',
             type: 'input',

@@ -24,10 +24,10 @@ export function BarcodeScanner({ onFound, onClose }: Props) {
 
   const stopScanner = useCallback(() => {
     activeRef.current = false;
-    readerRef.current?.reset();
+    try { readerRef.current?.reset(); } catch { /* ignore */ }
     if (videoRef.current?.srcObject) {
       const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
-      tracks.forEach((t) => t.stop());
+      tracks.forEach((t) => { try { t.stop(); } catch { /* ignore */ } });
       videoRef.current.srcObject = null;
     }
   }, []);
@@ -100,6 +100,15 @@ export function BarcodeScanner({ onFound, onClose }: Props) {
   }, [stopScanner]);
 
   useEffect(() => () => stopScanner(), [stopScanner]);
+
+  // ESC key closes the scanner
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { stopScanner(); onClose(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [stopScanner, onClose]);
 
   const handleConfirm = () => {
     if (found) onFound(found);

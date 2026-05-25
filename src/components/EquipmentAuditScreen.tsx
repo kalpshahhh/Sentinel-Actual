@@ -123,10 +123,6 @@ export function EquipmentAuditScreen({ vesselName, currentManifest, onSaved, onB
           'heart_rate',
           'blood_pressure',
           'pulse_oximeter',
-          '0x180A',
-          '0x1809',
-          '0x1810',
-          '0x180D',
         ],
       });
       const name = (device.name as string | undefined) ?? 'Unnamed device';
@@ -506,7 +502,7 @@ export function EquipmentAuditScreen({ vesselName, currentManifest, onSaved, onB
 
           {tab === 'manual' && (
             <motion.div key="manual" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-              <div className="max-w-lg space-y-4">
+              <div className="max-w-lg mx-auto space-y-4">
                 <div>
                   <div className="text-sm text-rig-text font-bold mb-1">Add device manually</div>
                   <div className="text-xs text-rig-dim">
