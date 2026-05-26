@@ -18,5 +18,16 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // React Compiler advisory hints — flag legitimate patterns (deriving
+      // state from props, initialising from external sources, manual
+      // memoization) that work correctly but aren't auto-optimisable.
+      // Downgrade to warnings so genuine errors surface clearly.
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/preserve-manual-memoization': 'warn',
+      // react-refresh complains when a component file also exports a const
+      // or helper. We co-locate small helpers with their components.
+      'react-refresh/only-export-components': 'warn',
+    },
   },
 ])

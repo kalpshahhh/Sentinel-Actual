@@ -18,7 +18,6 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: { componentStack?: string | null }) {
-    // eslint-disable-next-line no-console
     console.error('[Sentinel ErrorBoundary]', error, info);
     this.setState({ error, info: info.componentStack ?? null });
   }

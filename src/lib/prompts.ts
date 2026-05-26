@@ -22,7 +22,7 @@ Schema:
       "likelihoodPercent": 0-100,
       "regions": ["body_region_ids matching where it hurts/manifests"],
       "triggerSymptoms": ["plain-English observable symptoms a non-clinician sees"],
-      "yesNoQuestions": ["5 plain-English yes/no questions a non-clinician can answer at the bedside (e.g. \"Does the pain come in waves?\", \"Is there blood in their urine?\"). These are presented one at a time at runtime to narrow the diagnosis."],
+      "yesNoQuestions": ["5 plain-English yes/no questions a non-clinician can answer at the bedside (e.g. 'Does the pain come in waves?', 'Is there blood in their urine?'). These are presented one at a time at runtime to narrow the diagnosis."],
       "diagnosticSteps": ["short plain-English instruction"],
       "treatment": [
         {

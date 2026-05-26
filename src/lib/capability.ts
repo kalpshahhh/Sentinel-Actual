@@ -17,13 +17,13 @@ export function loadCapabilityProfile(): CapabilityProfile | null {
 export function saveCapabilityProfile(p: CapabilityProfile) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
-  } catch {}
+  } catch { /* localStorage unavailable */ }
 }
 
 export function clearCapabilityProfile() {
   try {
     localStorage.removeItem(STORAGE_KEY);
-  } catch {}
+  } catch { /* localStorage unavailable */ }
 }
 
 /**

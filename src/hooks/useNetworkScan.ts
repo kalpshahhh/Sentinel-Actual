@@ -159,7 +159,7 @@ export function useNetworkScan() {
         if (!ip) return;
         const url = ip.startsWith('http') ? ip : `http://${ip}/`;
         const start = performance.now();
-        let res: ProbeResult = { ip, reachable: false, ms: null, bodyPreview: null, note: '' };
+        let res: ProbeResult;
         try {
           const ac = new AbortController();
           const to = setTimeout(() => ac.abort(), 1500);

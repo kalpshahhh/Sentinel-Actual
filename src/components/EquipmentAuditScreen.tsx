@@ -26,6 +26,21 @@ import { useNetworkScan } from '../hooks/useNetworkScan';
 
 type Tab = 'bluetooth' | 'network' | 'manual';
 
+// Minimal Web Bluetooth shape — Chrome / Edge only. Full types live in
+// @types/web-bluetooth but we only call requestDevice() so a narrow local
+// interface keeps the surface tight and avoids pulling extra type deps.
+type RequestDeviceOptions = {
+  acceptAllDevices?: boolean;
+  filters?: Array<{ services?: string[]; namePrefix?: string }>;
+  optionalServices?: string[];
+};
+type BluetoothLike = {
+  requestDevice: (opts: RequestDeviceOptions) => Promise<{ id: string; name?: string }>;
+};
+function getNavigatorBluetooth(): BluetoothLike | undefined {
+  return (navigator as Navigator & { bluetooth?: BluetoothLike }).bluetooth;
+}
+
 type DiscoveredBtDevice = {
   btId: string;
   name: string;
@@ -91,7 +106,7 @@ export function EquipmentAuditScreen({ vesselName, currentManifest, onSaved, onB
   const scan = useNetworkScan();
 
   useEffect(() => {
-    setBtAvailable('bluetooth' in navigator && !!(navigator as any).bluetooth);
+    setBtAvailable('bluetooth' in navigator && !!getNavigatorBluetooth());
   }, []);
 
   // Seed from existing manifest
@@ -112,7 +127,8 @@ export function EquipmentAuditScreen({ vesselName, currentManifest, onSaved, onB
     setBtDiscovering(true);
     setBtError(null);
     try {
-      const bt = (navigator as any).bluetooth;
+      const bt = getNavigatorBluetooth();
+      if (!bt) throw new Error('Web Bluetooth API not available');
       const device = await bt.requestDevice({
         acceptAllDevices: true,
         optionalServices: [
@@ -353,7 +369,7 @@ export function EquipmentAuditScreen({ vesselName, currentManifest, onSaved, onB
                     </div>
                   </div>
                   <button
-                    onClick={() => setBtAvailable('bluetooth' in navigator && !!(navigator as any).bluetooth)}
+                    onClick={() => setBtAvailable('bluetooth' in navigator && !!getNavigatorBluetooth())}
                     className="text-[11px] uppercase tracking-widest text-rig-accent border border-rig-accent/40 rounded px-3 py-1.5 hover:bg-rig-accent/10"
                   >
                     <RefreshCw size={11} className="inline mr-1.5" /> Re-check

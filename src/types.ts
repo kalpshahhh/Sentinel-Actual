@@ -32,7 +32,7 @@ export type Symptom = {
   id: string;
   label: string;
   category: SymptomCategory;
-  value: any;
+  value: unknown;
 };
 
 export type Vitals = {
@@ -216,7 +216,7 @@ export type AuditEntry = {
   mode: 'deploy' | 'incident' | 'handoff';
   type: AuditEntryType;
   description: string;
-  data?: any;
+  data?: unknown;
 };
 
 export type CaseDecision = 'onboard' | 'evacuate';
@@ -231,7 +231,7 @@ export type CaseRecommendation = {
 export type Case = {
   id: string;
   startedAt: string;
-  symptoms: Record<string, any>;
+  symptoms: Record<string, unknown>;
   vitals: Vitals;
   differential: DifferentialItem[];
   selectedCondition?: string;

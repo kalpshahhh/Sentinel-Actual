@@ -49,17 +49,14 @@ export function CommandCenter({
   const effectiveOnline = isDemo ? !demoOffline : isOnline;
 
   // GPS
-  let coordText: string;
-  let gpsOk = false;
-  if (isDemo) {
-    coordText = `${fmtCoord(DEMO_LAT, DEMO_LNG)} (sim)`;
-    gpsOk = true;
-  } else {
-    gpsOk = geo.status === 'granted' && geo.lat !== null;
-    coordText = gpsOk
+  const gpsOk = isDemo ? true : (geo.status === 'granted' && geo.lat !== null);
+  const coordText: string = isDemo
+    ? `${fmtCoord(DEMO_LAT, DEMO_LNG)} (sim)`
+    : gpsOk
       ? fmtCoord(geo.lat!, geo.lng!)
-      : geo.status === 'pending' ? 'Acquiring…' : `${fmtCoord(vessel.lat, vessel.lng)} (no GPS)`;
-  }
+      : geo.status === 'pending'
+        ? 'Acquiring…'
+        : `${fmtCoord(vessel.lat, vessel.lng)} (no GPS)`;
 
   // Battery
   const battPct = isDemo ? 85 : (battery.supported && battery.level !== null ? Math.round(battery.level * 100) : null);

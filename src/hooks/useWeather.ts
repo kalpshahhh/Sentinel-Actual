@@ -32,14 +32,14 @@ function loadCache(): WeatherData | null {
     if (!raw) return null;
     const { ts, data } = JSON.parse(raw) as { ts: number; data: WeatherData };
     if (Date.now() - ts < CACHE_TTL) return data;
-  } catch {}
+  } catch { /* cache unavailable */ }
   return null;
 }
 
 function saveCache(data: WeatherData) {
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data }));
-  } catch {}
+  } catch { /* cache unavailable */ }
 }
 
 export function useWeather(lat: number | null, lng: number | null): WeatherData | null {

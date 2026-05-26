@@ -38,7 +38,7 @@ export function useEnvironment() {
         ENV_STORAGE_KEY,
         JSON.stringify({ roughSeas: env.roughSeas, nightMode: env.nightMode, gloved: env.gloved, oneHanded: env.oneHanded })
       );
-    } catch {}
+    } catch { /* localStorage unavailable */ }
   }, [env.roughSeas, env.nightMode, env.gloved, env.oneHanded]);
 
   const toggleRoughSeas = useCallback(() => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import type {
   AppMode,
@@ -62,15 +62,15 @@ function loadOrInitSatTarget(): number {
       const ts = parseInt(raw, 10);
       if (Number.isFinite(ts) && ts > Date.now() - 24 * 3600_000) return ts;
     }
-  } catch {}
+  } catch { /* localStorage unavailable */ }
   const next = Date.now() + SAT_WINDOW_INITIAL * 1000;
-  try { localStorage.setItem(SAT_TARGET_KEY, String(next)); } catch {}
+  try { localStorage.setItem(SAT_TARGET_KEY, String(next)); } catch { /* localStorage unavailable */ }
   return next;
 }
 
 function rolloverSatTarget(): number {
   const next = Date.now() + SAT_WINDOW_NEXT * 1000;
-  try { localStorage.setItem(SAT_TARGET_KEY, String(next)); } catch {}
+  try { localStorage.setItem(SAT_TARGET_KEY, String(next)); } catch { /* localStorage unavailable */ }
   return next;
 }
 
@@ -121,7 +121,7 @@ export default function App() {
   const isDemo = appSession === 'demo';
   const isOnboarding = appSession === 'onboarding';
 
-  const incidentRequestRef = useRef<number>(0);
+  const [incidentRequestCount, setIncidentRequestCount] = useState(0);
 
   useEffect(() => {
     loadManifest().then((m) => { if (m) setInventoryManifest(m); }).catch(() => {});
@@ -240,7 +240,7 @@ export default function App() {
   }, [satTargetTs, sound]);
 
   useEffect(() => {
-    try { localStorage.setItem(OPERATOR_MODE_KEY, operatorMode ? '1' : '0'); } catch {}
+    try { localStorage.setItem(OPERATOR_MODE_KEY, operatorMode ? '1' : '0'); } catch { /* localStorage unavailable */ }
   }, [operatorMode]);
 
   // Reload capability profile and cases when connectivity is restored
@@ -330,7 +330,7 @@ export default function App() {
       setCompiledScenarios(fb);
       setCloudCalls(0);
     }
-    incidentRequestRef.current += 1;
+    setIncidentRequestCount((n) => n + 1);
     setMode('incident');
     setShowCommandCenter(false);
     sound.playAlert();
@@ -338,7 +338,7 @@ export default function App() {
 
   const handleTriggerIncident = useCallback(() => {
     if (mode !== 'deploy' || compiledScenarios.length === 0) return;
-    incidentRequestRef.current += 1;
+    setIncidentRequestCount((n) => n + 1);
     setMode('incident');
     setShowCommandCenter(false);
     sound.playAlert();
@@ -612,7 +612,7 @@ export default function App() {
 
             {mode === 'incident' && (
               <IncidentMode
-                key={`${caseId}_${incidentRequestRef.current}`}
+                key={`${caseId}_${incidentRequestCount}`}
                 caseId={caseId}
                 vessel={vessel}
                 compiledScenarios={compiledScenarios}

@@ -111,7 +111,11 @@ export async function appendAuditEntry(entry: AuditEntry, caseId: string): Promi
 
 export async function loadAuditLog(caseId: string): Promise<AuditEntry[]> {
   const records = await db.auditLog.where('caseId').equals(caseId).sortBy('timestamp');
-  return records.map(({ caseId: _cid, ...entry }) => entry as AuditEntry);
+  return records.map((rec) => {
+    const entry: Record<string, unknown> = { ...rec };
+    delete entry.caseId;
+    return entry as unknown as AuditEntry;
+  });
 }
 
 // === Active incident draft (replaces localStorage) ===

@@ -59,7 +59,7 @@ function trySalvageJson(text: string): string {
   return s;
 }
 
-export async function callClaude<T = any>(
+export async function callClaude<T = unknown>(
   systemPrompt: string,
   userJson: unknown,
   maxTokens: number = 16384
@@ -84,7 +84,6 @@ export async function callClaude<T = any>(
   const cleaned = stripFences(raw);
 
   if (DEBUG) {
-    // eslint-disable-next-line no-console
     console.log('[Claude raw]', raw.slice(0, 400), '…stop:', response.stop_reason);
   }
 

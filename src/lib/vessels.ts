@@ -38,7 +38,7 @@ export async function loadVessels(): Promise<VesselRecord[]> {
         return loadLocations();
       }
     }
-  } catch {}
+  } catch { /* legacy migration skipped */ }
   return [];
 }
 
