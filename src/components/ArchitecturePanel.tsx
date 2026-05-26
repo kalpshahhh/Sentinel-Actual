@@ -22,7 +22,7 @@ export function ArchitecturePanel({ counters, scenarios, casesThisVoyage, preset
         <div className="flex items-center gap-2 mt-1">
           {preset === 'polar' ? <Snowflake size={14} className="text-rig-accent" /> : <Anchor size={14} className="text-rig-accent" />}
           <span className="uppercase tracking-wider text-sm text-rig-text">
-            {preset === 'polar' ? 'Polar Station' : 'Offshore Vessel'}
+            {preset === 'polar' ? 'Polar Station' : 'Offshore Location'}
           </span>
         </div>
       </header>

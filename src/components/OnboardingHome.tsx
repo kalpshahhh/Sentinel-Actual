@@ -156,7 +156,7 @@ export function OnboardingHome({
             <div className="text-[10px] uppercase tracking-widest text-rig-dim font-mono">
               Sentinel Onboarding {dataSource === 'demo' ? '· Simulated' : '· Live'}
             </div>
-            <div className="text-lg font-bold tracking-wider text-rig-text">Vessel Setup</div>
+            <div className="text-lg font-bold tracking-wider text-rig-text">Location Setup</div>
           </div>
         </div>
         <button
@@ -186,7 +186,7 @@ export function OnboardingHome({
           className="mb-5"
         >
           <div className="text-[10px] uppercase tracking-widest text-rig-dim mb-2 flex items-center gap-1.5">
-            <Ship size={11} /> Vessel
+            <Ship size={11} /> Location
           </div>
 
           {vessels.length > 0 && (
@@ -213,12 +213,12 @@ export function OnboardingHome({
               onClick={() => setShowNewVessel(true)}
               className="w-full flex items-center gap-2 px-4 py-3 rounded-lg border border-dashed border-rig-dim/40 hover:border-rig-accent/50 text-rig-dim hover:text-rig-accent transition-colors text-sm"
             >
-              <Plus size={15} /> Add new vessel
+              <Plus size={15} /> Add new location
             </button>
           ) : (
             <div className="bg-rig-surface/40 border border-rig-accent/30 rounded-lg p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <div className="text-xs uppercase tracking-widest text-rig-accent">New vessel</div>
+                <div className="text-xs uppercase tracking-widest text-rig-accent">New location</div>
                 <button onClick={() => { setShowNewVessel(false); setNewName(''); }} className="text-rig-dim hover:text-rig-text">
                   <X size={14} />
                 </button>
@@ -227,7 +227,7 @@ export function OnboardingHome({
                 autoFocus
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="Vessel name, e.g. MV Endeavour"
+                placeholder="Location name, e.g. MV Endeavour"
                 className="w-full bg-rig-bg border border-rig-dim/30 rounded p-2.5 text-sm text-rig-text placeholder:text-rig-dim focus:border-rig-accent focus:outline-none"
               />
               <div className="grid grid-cols-2 gap-2">
@@ -264,7 +264,7 @@ export function OnboardingHome({
                 }}
                 className="w-full px-4 py-2 bg-rig-accent text-rig-bg rounded text-xs font-bold uppercase tracking-widest disabled:opacity-40 hover:bg-rig-accent/85"
               >
-                Create vessel
+                Create location
               </button>
             </div>
           )}
@@ -390,7 +390,7 @@ export function OnboardingHome({
               </div>
             }
             title="Equipment Audit"
-            subtitle="Discover medical devices on this vessel"
+            subtitle="Discover medical devices at this location"
             description="Scan Bluetooth devices in range, then sweep WiFi / LAN. Detected devices register against the capability graph."
             count={equipmentCount}
             countLabel="devices catalogued"

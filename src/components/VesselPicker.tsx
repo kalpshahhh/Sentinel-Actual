@@ -40,16 +40,16 @@ export function VesselPicker({ vessels, sessionMode, onSelect, onGoToOnboarding 
           <div className={clsx('text-xs uppercase tracking-widest font-mono mb-2', modeColor)}>
             Sentinel · {modeLabel} Mode
           </div>
-          <h2 className="text-3xl font-bold uppercase tracking-widest text-rig-text">Select vessel</h2>
-          <p className="text-sm text-rig-dim mt-2">Which vessel are you currently on or at?</p>
+          <h2 className="text-3xl font-bold uppercase tracking-widest text-rig-text">Select location</h2>
+          <p className="text-sm text-rig-dim mt-2">Which location are you currently at?</p>
         </div>
 
         {/* Vessel cards */}
         {vessels.length === 0 ? (
           <div className="text-center py-10 text-rig-dim">
             <Ship size={40} className="mx-auto mb-3 opacity-30" />
-            <div className="text-sm mb-1">No vessels configured yet</div>
-            <div className="text-xs">Run Onboarding to set up a vessel profile.</div>
+            <div className="text-sm mb-1">No locations configured yet</div>
+            <div className="text-xs">Run Onboarding to set up a location profile.</div>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
@@ -124,14 +124,14 @@ export function VesselPicker({ vessels, sessionMode, onSelect, onGoToOnboarding 
           </div>
         )}
 
-        {/* Add new vessel */}
+        {/* Add new location */}
         <button
           onClick={onGoToOnboarding}
           className="w-full flex items-center gap-3 p-4 rounded-lg border border-dashed border-rig-dim/40 hover:border-rig-accent/50 text-rig-dim hover:text-rig-accent transition-colors group"
         >
           <Plus size={18} className="shrink-0" />
           <div className="text-left">
-            <div className="text-sm font-bold uppercase tracking-wider">Add new vessel</div>
+            <div className="text-sm font-bold uppercase tracking-wider">Add new location</div>
             <div className="text-xs">Set up equipment, medications and protocols via Onboarding</div>
           </div>
           <ClipboardList size={16} className="ml-auto shrink-0 opacity-60 group-hover:opacity-100" />

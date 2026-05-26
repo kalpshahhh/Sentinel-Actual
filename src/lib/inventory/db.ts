@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import type { InventoryManifest, InventoryAuditEntry } from '../../types/inventory';
 import type { AuditEntry, Case } from '../../types';
 import type { PersistedIncident } from '../incidentPersistence';
+import type { VesselRecord } from '../../types/location';
 
 type ManifestRecord = InventoryManifest & { _key: string };
 type SessionRecord = { key: string; value: unknown };
@@ -16,6 +17,8 @@ class SentinelDB extends Dexie {
   cases!: Table<Case, string>;
   auditLog!: Table<AuditLogRecord, string>;
   incidentDraft!: Table<IncidentDraftRecord, string>;
+  // v3 — location (vessel) registry
+  locations!: Table<VesselRecord, string>;
 
   constructor() {
     super('sentinel-v2');
@@ -31,6 +34,15 @@ class SentinelDB extends Dexie {
       cases: 'id, startedAt, resolved',
       auditLog: 'id, timestamp, mode, caseId',
       incidentDraft: 'key',
+    });
+    this.version(3).stores({
+      manifests: '_key, vesselId, importedAt',
+      inventoryAudit: 'id, timestamp, action, source',
+      deploySession: 'key',
+      cases: 'id, startedAt, resolved',
+      auditLog: 'id, timestamp, mode, caseId',
+      incidentDraft: 'key',
+      locations: 'id, preset, lastUpdated, createdAt',
     });
   }
 }
@@ -122,4 +134,22 @@ export async function loadIncidentDraft(caseId: string): Promise<PersistedIncide
 
 export async function clearIncidentDraft(): Promise<void> {
   await db.incidentDraft.delete(DRAFT_KEY);
+}
+
+// === Location (vessel) registry ===
+
+export async function saveLocation(loc: VesselRecord): Promise<void> {
+  await db.locations.put(loc);
+}
+
+export async function loadLocations(): Promise<VesselRecord[]> {
+  return db.locations.orderBy('lastUpdated').reverse().toArray();
+}
+
+export async function deleteLocation(id: string): Promise<void> {
+  await db.locations.delete(id);
+}
+
+export async function getLocation(id: string): Promise<VesselRecord | null> {
+  return (await db.locations.get(id)) ?? null;
 }

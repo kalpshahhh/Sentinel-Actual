@@ -110,7 +110,7 @@ export default function App() {
   /** In onboarding mode, which screen of the hub is showing. */
   const [onboardingView, setOnboardingView] = useState<'home' | 'equipment-audit' | 'medicine-audit'>('home');
   /** Vessel registry — persisted to localStorage. */
-  const [vessels, setVessels] = useState<VesselRecord[]>(() => loadVessels());
+  const [vessels, setVessels] = useState<VesselRecord[]>([]);
   /** Which vessel is active in the current session. */
   const [activeVesselId, setActiveVesselId] = useState<string | null>(null);
   /** Show vessel picker before CommandCenter in demo/live. */
@@ -126,23 +126,20 @@ export default function App() {
   useEffect(() => {
     loadManifest().then((m) => { if (m) setInventoryManifest(m); }).catch(() => {});
     loadAllCases().then(setResolvedCases).catch(() => {});
+    // Seed built-in locations on first launch, then load all from Dexie
+    void (async () => {
+      const existing = await loadVessels();
+      const hasOffshore = existing.some((v) => v.id === VESSEL_ID_OFFSHORE);
+      const hasPolar = existing.some((v) => v.id === VESSEL_ID_POLAR);
+      if (!hasOffshore) await saveVessel(getOrInitVessel('offshore', 'MV NORTHERN STAR'));
+      if (!hasPolar) await saveVessel(getOrInitVessel('polar', 'HALLEY VI'));
+      setVessels(await loadVessels());
+    })();
   }, []);
 
   useEffect(() => {
     loadIncidentStateAsync(caseId).then(setIncidentDraft).catch(() => {});
   }, [caseId]);
-
-  // Seed the registry with the two built-in vessels on first launch so they
-  // always appear in VesselPicker even before the operator runs onboarding.
-  useEffect(() => {
-    const existing = loadVessels();
-    const hasOffshore = existing.some((v) => v.id === VESSEL_ID_OFFSHORE);
-    const hasPolar = existing.some((v) => v.id === VESSEL_ID_POLAR);
-    if (!hasOffshore) saveVessel(getOrInitVessel('offshore', 'MV NORTHERN STAR'));
-    if (!hasPolar) saveVessel(getOrInitVessel('polar', 'HALLEY VI'));
-    setVessels(loadVessels());
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   /** Switch to a saved vessel: load its manifest + compiled protocols. */
   const handleVesselSelect = (id: string) => {
@@ -165,7 +162,7 @@ export default function App() {
     setShowCommandCenter(true);
   };
 
-  /** Create a new custom vessel and make it active. */
+  /** Create a new custom location and make it active. */
   const handleVesselCreate = (name: string, preset: InventoryPreset) => {
     const now = new Date().toISOString();
     const rec: VesselRecord = {
@@ -179,13 +176,12 @@ export default function App() {
       lastUpdated: now,
       createdAt: now,
     };
-    saveVessel(rec);
-    setVessels(loadVessels());
+    void saveVessel(rec).then(() => loadVessels().then(setVessels));
     setActiveVesselId(rec.id);
     handleSelectPreset(preset);
   };
 
-  /** Persist a manifest to the active vessel record + trigger background compile. */
+  /** Persist a manifest to the active location record + trigger background compile. */
   const handleSaveVesselManifest = (manifest: InventoryManifest) => {
     setInventoryManifest(manifest);
     void saveManifest(manifest);
@@ -194,8 +190,7 @@ export default function App() {
     const v = vessels.find((x) => x.id === activeVesselId);
     if (!v) return;
     const updated: VesselRecord = { ...v, manifest, lastUpdated: now };
-    saveVessel(updated);
-    setVessels(loadVessels());
+    void saveVessel(updated).then(() => loadVessels().then(setVessels));
 
     // Background protocol compilation — fires and forgets; result stored in registry
     if (!compilingInBackground) {
@@ -209,8 +204,7 @@ export default function App() {
             compiledAt: new Date().toISOString(),
             lastUpdated: new Date().toISOString(),
           };
-          saveVessel(withProtocols);
-          setVessels(loadVessels());
+          void saveVessel(withProtocols).then(() => loadVessels().then(setVessels));
         })
         .finally(() => setCompilingInBackground(false));
     }
@@ -490,8 +484,7 @@ export default function App() {
           if (activeVesselId) {
             const v = vessels.find((x) => x.id === activeVesselId);
             if (v && capabilityProfile) {
-              saveVessel({ ...v, capabilityProfile, lastUpdated: new Date().toISOString() });
-              setVessels(loadVessels());
+              void saveVessel({ ...v, capabilityProfile, lastUpdated: new Date().toISOString() }).then(() => loadVessels().then(setVessels));
             }
           }
           setShowCommandCenter(true);
