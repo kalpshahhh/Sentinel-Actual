@@ -70,7 +70,7 @@ export function IncidentMode({
   const [regions, setRegions] = useState<BodyRegion[]>(restored?.regions ?? []);
   const [answers, setAnswers] = useState<Record<string, Answer>>(restored?.answers ?? {});
   const [answeredOrder, setAnsweredOrder] = useState<string[]>(restored?.answeredOrder ?? []);
-  const MAX_QUESTIONS = 6;
+  const MAX_QUESTIONS = 8;
   const questionIdx = answeredOrder.length;
   const [extraInfo, setExtraInfo] = useState<string>(restored?.extraInfo ?? '');
   const [ultrasoundFinding, setUltrasoundFinding] = useState<{ key: UltrasoundFinding; label: string } | null>(null);
@@ -128,7 +128,7 @@ export function IncidentMode({
     addAuditEntry({
       mode: 'incident',
       type: 'recommendation',
-      description: 'Diagnostic engine: entropy-based question selection — each question scored by split-score × ambiguity boost × relevance. No cloud calls.',
+      description: 'Diagnostic engine: entropy-based question selection (gain = splitScore × ambiguityBoost × relevance), graduated minimum-questions stop (n=1: 80%/30pt → n=5+: 45%/10pt), pool capped at 8, hard cap 8. No cloud calls.',
     });
     setStage('body');
   }, [addAuditEntry, medicNotified, upfrontEtaHours, evacConfirmed]);
@@ -152,11 +152,26 @@ export function IncidentMode({
     [compiledScenarios, regions, answers, questionPool]
   );
 
-  // Early-stop heuristic: high lead + decent absolute confidence.
-  const confidenceReached =
-    ranked.length >= 1 &&
-    ranked[0].probability > 0.55 &&
-    ranked[0].probability - (ranked[1]?.probability ?? 0) > 0.18;
+  // Minimum-questions heuristic — graduated thresholds.
+  // Stop as soon as the top scenario is decisive enough, relaxing the bar
+  // with each additional question so we don't ask more than we need.
+  // n=1 → only stop if overwhelmingly clear (sentinel diagnosis)
+  // n=2 → very clear
+  // n=3 → clear
+  // n=4 → comfortable
+  // n=5+ → practical — the marginal question won't add much
+  const confidenceReached = (() => {
+    if (ranked.length < 1) return false;
+    const top = ranked[0].probability;
+    const lead = top - (ranked[1]?.probability ?? 0);
+    const n = answeredOrder.length;
+    if (n >= 5) return top > 0.45 && lead > 0.10;
+    if (n === 4) return top > 0.50 && lead > 0.15;
+    if (n === 3) return top > 0.60 && lead > 0.20;
+    if (n === 2) return top > 0.70 && lead > 0.25;
+    if (n === 1) return top > 0.80 && lead > 0.30;
+    return false;
+  })();
 
   const topScenario =
     confirmedScenarioId ? compiledScenarios.find((s) => s.id === confirmedScenarioId) ?? ranked[0]?.scenario ?? null : ranked[0]?.scenario ?? null;
@@ -318,6 +333,40 @@ export function IncidentMode({
     [topScenario, addAuditEntry, caseId, regions, answers, extraInfo, derivedVitals, ranked, ultrasoundFinding, onConfirm]
   );
 
+  // Universal "medics arrived" exit — usable at every stage after setup.
+  // Builds a Case from whatever data exists and hands off to the audit/SBAR view.
+  const handleMedicsArrived = useCallback(() => {
+    addAuditEntry({
+      mode: 'incident',
+      type: 'decision',
+      description: `Medics arrived — operator triggered early handoff at stage "${stage}" with ${answeredOrder.length} question${answeredOrder.length === 1 ? '' : 's'} answered`,
+    });
+    const kase: Case = {
+      id: caseId,
+      startedAt: startedAtRef.current,
+      symptoms: { regions, answers, extraInfo },
+      vitals: derivedVitals,
+      differential: ranked.map((d) => ({
+        condition: d.scenario.condition,
+        probability: d.probability,
+        reasoning: d.reasoning,
+      })),
+      selectedCondition: topScenario?.condition,
+      ultrasoundFindings: ultrasoundFinding?.label,
+      recommendation: topScenario
+        ? {
+            steps: topScenario.treatment,
+            decision: 'evacuate',
+            rationale: 'Medical professionals arrived on scene — handing off in-progress care.',
+            costSavings: 0,
+          }
+        : undefined,
+      resolved: false,
+    };
+    clearIncidentState();
+    onConfirm(kase);
+  }, [stage, answeredOrder.length, addAuditEntry, caseId, regions, answers, extraInfo, derivedVitals, ranked, topScenario, ultrasoundFinding, onConfirm]);
+
   // Fast-forward (key '3')
   useEffect(() => {
     if (fastForwardKey === fastForwardHandledRef.current) return;
@@ -364,6 +413,15 @@ export function IncidentMode({
               <div className="text-[10px] uppercase tracking-widest text-rig-critical">Emergency Mode</div>
               <div className="text-sm text-rig-text">{stageLabel(stage)}</div>
             </div>
+            {stage !== 'setup' && (
+              <button
+                onClick={handleMedicsArrived}
+                title="Medics or professionals are now on scene — switch to handoff/audit view"
+                className="px-3 py-1.5 rounded text-[10px] uppercase tracking-widest font-bold bg-rig-ok/15 border border-rig-ok/50 text-rig-ok hover:bg-rig-ok/25 flex items-center gap-1.5"
+              >
+                <CheckCircle size={11} /> Medics arrived
+              </button>
+            )}
             <div className="text-[10px] text-rig-ok font-mono flex items-center gap-1">
               <CheckCircle size={11} /> 0 cloud calls
             </div>
@@ -402,6 +460,27 @@ export function IncidentMode({
                   <InteractiveBody regions={regions} onChange={setRegions} />
                 </div>
               </div>
+
+              {/* Free-text input — operator can describe anything that doesn't fit on the body map */}
+              <div className="max-w-xl mx-auto mt-6 bg-rig-surface border border-rig-dim/30 rounded-md p-3">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <FileText size={11} className="text-rig-accent" />
+                  <span className="text-[10px] uppercase tracking-widest text-rig-dim">
+                    Anything else you want us to know? (optional)
+                  </span>
+                </div>
+                <textarea
+                  value={extraInfo}
+                  onChange={(e) => {
+                    setExtraInfo(e.target.value);
+                    addAuditEntry({ mode: 'incident', type: 'input', description: `Body-stage operator note (${e.target.value.length} chars)` });
+                  }}
+                  placeholder="e.g. They fell from a ladder 20 min ago. Looks pale and sweaty. Says they took ibuprofen at 9am."
+                  rows={2}
+                  className="w-full bg-rig-bg border border-rig-dim/30 rounded p-2 text-sm text-rig-text placeholder:text-rig-dim focus:border-rig-accent focus:outline-none resize-none"
+                />
+              </div>
+
               {regions.length > 0 && (
                 <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mt-6 flex flex-col items-center">
                   <button

@@ -5,6 +5,7 @@ import { FileText, RotateCcw, Send, Hourglass, AlertTriangle, CheckCircle } from
 import type { AuditEntry, Case, Vessel } from '../types';
 import { callClaudeText } from '../lib/anthropic';
 import { HANDOFF_NOTE_PROMPT } from '../lib/prompts';
+import { TREATMENT_SUBSTITUTIONS } from '../data/treatmentSubstitutions';
 import { AuditTimeline } from './AuditTimeline';
 
 type Props = {
@@ -49,13 +50,115 @@ function parseSbar(text: string): Array<{ header: SbarHeader | null; body: strin
   return out;
 }
 
-const FALLBACK_NOTE = `SITUATION: 34yo male engineer aboard MV NORTHERN STAR (offshore supply vessel, 57.1°N 2.0°W, ETA shore 14h) presented with sudden-onset right flank pain radiating to groin, severity 8/10, 2h prior to assessment.
+/**
+ * Build an SBAR handoff note from the actual case data when the LLM is
+ * unavailable. The output is structured so a clinician can read it cold:
+ * vessel context, free-text operator notes, differential with probabilities,
+ * the chosen treatment plan, every documented substitution per step, and
+ * the deterministic red-flags for evac.
+ */
+function buildFallbackSbar(kase: Case, vessel: Vessel): string {
+  const startedAt = new Date(kase.startedAt);
+  const elapsedMin = Math.max(0, Math.round((Date.now() - startedAt.getTime()) / 60_000));
+  const regions = (kase.symptoms?.regions ?? []) as string[];
+  const extra = (kase.symptoms?.extraInfo ?? '') as string;
+  const condition = kase.selectedCondition ?? 'Undifferentiated — operator handed off before final diagnosis';
+  const diff = kase.differential ?? [];
+  const top3 = diff
+    .slice(0, 3)
+    .map((d) => `${d.condition} ${Math.round(d.probability * 100)}%`)
+    .join('; ');
+  const regionsLine =
+    regions.length > 0
+      ? regions.map((r) => r.replace(/_/g, ' ')).join(', ')
+      : 'no body-region tap recorded';
 
-BACKGROUND: No relevant PMHx documented, NKDA, no current meds. Vessel underway in sea state 4. Sickbay equipped per MCA Cat A. Crew assessor: non-physician with Sentinel guidance.
+  const situation = [
+    `Crewmember aboard ${vessel.name} (${vessel.type}, flag ${vessel.flag}, ${vessel.crew} crew).`,
+    `Incident started ${startedAt.toISOString()} — ${elapsedMin} min ago.`,
+    `Operator-reported location of complaint: ${regionsLine}.`,
+    `Shore ETA approx ${vessel.etaToShoreHours}h. Weather on deck: ${vessel.weatherCondition}.`,
+  ].join(' ');
 
-ASSESSMENT: Colicky right flank pain, radiation to groin, associated nausea and visible hematuria. Vitals BP 148/92, HR 104, SpO2 97% RA, Temp 37.1°C, RR 18 — afebrile, hemodynamically stable, mild tachycardia and hypertension consistent with pain response. POCUS right kidney sagittal: no hydronephrosis, intact collecting system, no perinephric fluid. Working dx: uncomplicated right ureteric colic [BNF 7.4.1, MCA §12.3, SUSPEND 2015].
+  const background = [
+    extra ? `Operator notes: "${extra.trim()}"` : 'No additional operator notes recorded.',
+    'No structured PMHx captured (Sentinel non-clinician path).',
+    'Assessor: non-physician with Sentinel offline-graph guidance — pre-compiled protocols only, zero cloud calls during incident run.',
+  ].join(' ');
 
-RECOMMENDATION: Manage onboard. Ketorolac 30 mg IM stat then q6h PRN (max 90 mg/24h) [BNF 10.1.1]; Ondansetron 4 mg IV PRN; Hartmann's 1 L IV over 2h, maintenance NaCl 0.9%; Tamsulosin 0.4 mg PO daily x 28d [SUSPEND]; strain urine for stone analysis; reassess vitals + pain at 1h/2h/4h with repeat POCUS at 4h. Evacuation triggers: T>38.5°C, uncontrolled pain after ketorolac + morphine 5 mg IM, anuria >4h, worsening hematuria. Request telemedicine review at next satellite window. Case ID logged.`;
+  const assessmentLines: string[] = [];
+  assessmentLines.push(`Working diagnosis: ${condition}.`);
+  if (top3) assessmentLines.push(`Differential (top 3 by deterministic ranking): ${top3}.`);
+  if (kase.ultrasoundFindings) assessmentLines.push(`POCUS finding: ${kase.ultrasoundFindings}.`);
+  const answers = (kase.symptoms?.answers ?? {}) as Record<string, string>;
+  const answeredCount = Object.keys(answers).length;
+  if (answeredCount > 0) {
+    const yes = Object.values(answers).filter((v) => v === 'yes').length;
+    const no = Object.values(answers).filter((v) => v === 'no').length;
+    const skip = Object.values(answers).filter((v) => v === 'skip').length;
+    assessmentLines.push(`Yes/no questions answered: ${answeredCount} (yes=${yes}, no=${no}, not-sure=${skip}).`);
+  }
+
+  const recParts: string[] = [];
+  const steps = kase.recommendation?.steps ?? [];
+  if (steps.length === 0) {
+    recParts.push(
+      'No treatment plan finalized before handoff — operator chose to wait for arriving professionals.'
+    );
+  } else {
+    recParts.push(`Decision: ${kase.recommendation?.decision?.toUpperCase()}. ${kase.recommendation?.rationale ?? ''}`.trim());
+    recParts.push('Compiled treatment plan (in order):');
+    steps.forEach((s, idx) => {
+      const line: string[] = [`${idx + 1}. ${s.action}`];
+      if (s.drug) line.push(`[${s.drug}${s.dose ? ` ${s.dose}` : ''}${s.route ? ` ${s.route}` : ''}${s.frequency ? `, ${s.frequency}` : ''}]`);
+      if (s.why) line.push(`— ${s.why}`);
+      recParts.push(line.join(' '));
+      // Step-level alternatives (already compiled into the protocol)
+      if (s.alternatives && s.alternatives.length > 0) {
+        recParts.push(
+          `   Substitutions if primary not possible: ${s.alternatives
+            .map((a) => `if ${a.when} → ${a.instead}`)
+            .join(' | ')}`
+        );
+      }
+      // Cross-reference deterministic substitution table by drug name
+      if (s.drug) {
+        const tableHit = TREATMENT_SUBSTITUTIONS.find((sub) =>
+          s.drug!.toLowerCase().includes(sub.originalDrugPattern.toLowerCase())
+        );
+        if (tableHit) {
+          if (tableHit.criticalWarning) {
+            recParts.push(`   ⚠ CRITICAL: ${tableHit.criticalWarning}`);
+          }
+          if (tableHit.alternatives.length > 0) {
+            recParts.push(
+              `   Inventory-aware alternatives: ${tableHit.alternatives
+                .map((a) => `${a.action} (${a.note})`)
+                .join(' | ')}`
+            );
+          }
+        }
+      }
+    });
+  }
+
+  // Pull evacuateIf red-flags via differential top scenario — we have the
+  // condition name but not the scenario object here, so quote the rationale
+  // line that already contains the trigger summary.
+  if (kase.recommendation?.decision === 'evacuate') {
+    recParts.push('Disposition: evacuation requested. Telemedicine consult requested at next satellite window.');
+  }
+
+  return [
+    `SITUATION: ${situation}`,
+    '',
+    `BACKGROUND: ${background}`,
+    '',
+    `ASSESSMENT: ${assessmentLines.join(' ')}`,
+    '',
+    `RECOMMENDATION: ${recParts.join('\n')}`,
+  ].join('\n');
+}
 
 export function HandoffMode({
   vessel,
@@ -131,7 +234,7 @@ export function HandoffMode({
       });
     } catch (err) {
       setError((err as Error).message);
-      streamWords(FALLBACK_NOTE);
+      streamWords(buildFallbackSbar(kase, vessel));
       addAuditEntry({
         mode: 'handoff',
         type: 'recommendation',
