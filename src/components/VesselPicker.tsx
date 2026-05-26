@@ -25,7 +25,7 @@ type Props = {
 export function VesselPicker({ vessels, sessionMode, onSelect, onGoToOnboarding }: Props) {
   const [hovered, setHovered] = useState<string | null>(null);
 
-  const modeLabel = sessionMode === 'demo' ? 'Training' : 'Live';
+  const modeLabel = sessionMode === 'demo' ? 'Demo' : 'Live';
   const modeColor = sessionMode === 'demo' ? 'text-rig-accent' : 'text-rig-critical';
 
   return (

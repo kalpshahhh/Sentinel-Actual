@@ -697,7 +697,7 @@ export default function App() {
         onClick={() => { setAppSession(null); setShowCommandCenter(false); setDemoOffline(false); }}
         className="fixed bottom-3 left-3 z-30 px-3 py-2 text-[10px] uppercase tracking-widest rounded-md border border-rig-dim/30 bg-rig-bg/90 backdrop-blur hover:bg-rig-surface text-rig-dim hover:text-rig-text shadow-lg"
       >
-        {isDemo ? '⬡ Training' : isOnboarding ? '⬡ Onboarding' : '⬡ Live'} · change
+        {isDemo ? '⬡ Demo' : isOnboarding ? '⬡ Onboarding' : '⬡ Live'} · change
       </button>
 
       {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}

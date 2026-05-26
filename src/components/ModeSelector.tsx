@@ -38,11 +38,11 @@ export function ModeSelector({ onSelect }: Props) {
         />
         <ModeCard
           icon={<FlaskConical size={36} />}
-          title="Training"
+          title="Demo"
           subtitle="Practice & familiarisation"
           badge="SIMULATED"
           badgeTone="accent"
-          cta="Enter Training"
+          cta="Enter Demo"
           tone="accent"
           onClick={() => onSelect('demo')}
         />

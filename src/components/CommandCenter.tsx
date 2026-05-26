@@ -67,7 +67,7 @@ export function CommandCenter({
 
   const modeBadge = {
     live: { label: 'LIVE', color: 'text-rig-critical border-rig-critical/50 bg-rig-critical/10' },
-    demo: { label: 'TRAINING', color: 'text-rig-accent border-rig-accent/50 bg-rig-accent/10' },
+    demo: { label: 'DEMO', color: 'text-rig-accent border-rig-accent/50 bg-rig-accent/10' },
     onboarding: { label: 'SETUP', color: 'text-rig-ok border-rig-ok/50 bg-rig-ok/10' },
   }[sessionMode];
 
